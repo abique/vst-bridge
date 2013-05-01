@@ -1,0 +1,95 @@
+#! /bin/sh
+
+DEBUG=1
+CPPFLAGS="$CPPFLAGS -D_GNU_SOURCE"
+CFLAGS="$CFLAGS -W -Wall -Wstrict-prototypes -pipe"
+CFLAGS="$CFLAGS -Wfloat-equal -Wundef -Wshadow -Wpointer-arith"
+CFLAGS="$CFLAGS -Wmissing-declarations -Wnested-externs"
+CFLAGS="$CFLAGS -Wmissing-prototypes -fPIC"
+CXXFLAGS="$CXXFLAGS -W -Wall -pipe -Wundef -Wshadow -Wpointer-arith -Wabi -std=c++11 -fPIC"
+LDFLAGS="$LDFLAGS"
+
+if [[ -z "$CC" ]]; then
+    CC=gcc
+fi
+
+if [[ -z "$CXX" ]]; then
+    CXX=g++
+fi
+
+if [[ -z "$WINCC" ]]; then
+    WINCC=i486-mingw32-gcc
+fi
+
+if [[ -z "$WINCXX" ]]; then
+    WINCXX=i486-mingw32-g++
+fi
+
+if [[ -z "$PREFIX" ]]; then
+    PREFIX=/usr/local
+fi
+
+function usage()
+{
+    echo -n "usage: $0
+  --release		disable debug
+  --debug		enables debug
+
+  --prefix=<dir>        the installation prefix path
+"
+    exit
+}
+
+until [[ $# -eq 0 ]] ;
+do
+    case "$1" in
+	--release)
+	    DEBUG=0
+	    ;;
+	--debug)
+	    DEBUG=1
+	    ;;
+        --prefix=*)
+            PREFIX="${1/--prefix=/}"
+            ;;
+	-h|--help|help)
+	    usage
+	    ;;
+	*)
+            echo wrong argument "$1"
+	    usage
+	    ;;
+    esac
+    shift
+done
+
+if [[ $DEBUG -eq 0 ]]; then
+    CFLAGS="$CFLAGS -DNDEBUG -O2"
+    CXXFLAGS="$CXXFLAGS -DNDEBUG -O2"
+else
+    CFLAGS="$CFLAGS -g"
+    CXXFLAGS="$CXXFLAGS -g"
+fi
+
+CFLAGS="${CPPFLAGS} ${CFLAGS}"
+CXXFLAGS="${CPPFLAGS} ${CXXFLAGS}"
+
+cat >config.h <<EOF
+#ifndef CONFIG_H
+# define CONFIG_H
+
+# define INSTALL_PREFIX "${PREFIX}"
+
+#endif /* !CONFIG_H */
+EOF
+
+cat >config.mk <<EOF
+CPPFLAGS = $CPPFLAGS
+CFLAGS = $CFLAGS
+CXXFLAGS = $CXXFLAGS
+CC = $CC
+CXX = $CXX
+WINCC = $WINCC
+WINCXX = $WINCXX
+PREFIX = $PREFIX
+EOF

@@ -1,0 +1,8 @@
+config.h
+config.mk
+maker/vst-bridge-maker
+plugin/vst-bridge-plugin-tpl.so
+host/vst-bridge-host-32.exe
+host/vst-bridge-host-64.exe
+host/vst-bridge-host-32.exe.so
+host/vst-bridge-host-64.exe.so

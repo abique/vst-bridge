@@ -2,12 +2,24 @@ This is a bridge to run windows VST plugins on Linux VST hosts.
 
 = Architecture =
 
-vst-bridge.so.tpl has room for the windows plugin path.
+vst-bridge.so is a Linux VST plugin which has space reserved for the windows
+plugin path.
 
-vst-bridge-maker creates a dedicate vst-plugin.so by setting the path to the
-windows vst in vst-bridge.so.tpl.
+vst-bridge-create creates a dedicated vst-bridge-<plugin>.so for each windows
+vst plugin by setting the path to the windows vst in vst-bridge-<plugin>.so
 
-vst-bridge-host.exe hosts a windows vst and receives RPC.
+vst-bridge-host.exe hosts a windows vst and communicates with
+vst-bridge-<plugin>.so.
 
-vst-bridge-<plugin>.so starts a new wine process vst-bridge-host.exe and
+vst-bridge-<plugin>.so spawns a new wine process vst-bridge-host.exe and
 passes the path to the <plugin>.
+
+= Protocol =
+
+The communication is done through socket(AF_UNIX, SOCK_SEQPACKET, 0).
+The buffer oriented tasks, like process, ... may be done via shared memory.
+
+ - request : tag, cmd, len(data), data
+ - tag: 32 bits
+ - cmd: 32 bits
+ - len(data): 32 bits
