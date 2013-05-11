@@ -44,8 +44,7 @@ bool wait_response(struct vst_bridge_request *rq,
     dprintf(g_host.logfd, " ==> got tag: %d\n", rq->tag);
     if (rq->tag == tag)
       return true;
-    if (!serve_request2(rq))
-      return false;
+    serve_request2(rq);
   }
 }
 
@@ -256,8 +255,6 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
     return rq.amrq.value;
 
   case audioMasterGetTime:
-    return NULL;
-
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;

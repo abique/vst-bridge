@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+#include <pthread.h>
 
 #define __cdecl
 
@@ -17,6 +18,11 @@ const char g_host_path[PATH_MAX] = INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-ho
 
 #include <vst2.x/aeffectx.h>
 
+struct vst_bridge_request_list {
+  struct vst_bridge_request_list *next;
+  struct vst_bridge_request rq;
+};
+
 struct vst_bridge_effect {
   struct AEffect           e;
   int                      socket;
@@ -25,13 +31,14 @@ struct vst_bridge_effect {
   audioMasterCallback      audio_master;
   int                      logfd;
   void                    *chunk;
+  pthread_mutex_t          lock;
 };
 
 bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
                                     struct vst_bridge_request *rq)
 {
-  dprintf(vbe->logfd, "audio_master: opcode: %d, tag: %d\n",
-          rq->amrq.opcode, rq->tag);
+  dprintf(vbe->logfd, "[%d] audio_master: opcode: %d, tag: %d\n",
+          pthread_self(), rq->amrq.opcode, rq->tag);
 
   switch (rq->amrq.opcode) {
   case audioMasterAutomate:
@@ -72,6 +79,8 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
     break;
   }
   write(vbe->socket, rq, sizeof (*rq));
+  dprintf(vbe->logfd, "[%d] audio_master: opcode: %d, tag: %d <== DONE\n",
+          pthread_self(), rq->amrq.opcode, rq->tag);
 }
 
 bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
@@ -81,13 +90,13 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
   ssize_t len;
 
   while (true) {
-    dprintf(vbe->logfd, " ==> wait for tag: %d\n", tag);
+    dprintf(vbe->logfd, " ==> [%d] wait for tag: %d\n", pthread_self(), tag);
     len = ::read(vbe->socket, rq, sizeof (*rq));
     if (len <= 0)
       return false;
     assert(len > 8);
     if (len > sizeof (*rq)) {
-      dprintf(vbe->logfd, "  !!!!!!!!!!!!!!!!!!!!!!! got big len: %d\n", len);
+      dprintf(vbe->logfd, "[%d]  !!!!!!!!!!!!!!!!!!!!!!! got big len: %d\n", pthread_self(), len);
       assert(len <= sizeof (*rq));
     }
     if (rq->tag == tag) {
@@ -101,6 +110,7 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
               rq->cmd, tag, rq->tag, rq->amrq.opcode, rq->amrq.index, rq->amrq.value, rq->amrq.opt);
     assert(rq->cmd == VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK);
     vst_bridge_handle_audio_master(vbe, rq);
+    dprintf(vbe->logfd, "[%d] wait_response: got back on waiting tag %d\n", pthread_self(), tag);
   }
 }
 
@@ -111,6 +121,8 @@ void vst_bridge_call_process(AEffect* effect,
 {
   struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
   struct vst_bridge_request rq;
+
+  pthread_mutex_lock(&vbe->lock);
 
   rq.tag             = vbe->next_tag;
   rq.cmd             = VST_BRIDGE_CMD_PROCESS;
@@ -132,6 +144,8 @@ void vst_bridge_call_process(AEffect* effect,
   for (int i = 0; i < vbe->e.numOutputs; ++i)
     memcpy(outputs[i], rq.frames.frames + i * sampleFrames,
            sizeof (float) * sampleFrames);
+
+  pthread_mutex_unlock(&vbe->lock);
 }
 
 void vst_bridge_call_process_double(AEffect* effect,
@@ -141,6 +155,8 @@ void vst_bridge_call_process_double(AEffect* effect,
 {
   struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
   struct vst_bridge_request rq;
+
+  pthread_mutex_lock(&vbe->lock);
 
   rq.tag              = vbe->next_tag;
   rq.cmd              = VST_BRIDGE_CMD_PROCESS_DOUBLE;
@@ -156,6 +172,8 @@ void vst_bridge_call_process_double(AEffect* effect,
   for (int i = 0; i < vbe->e.numOutputs; ++i)
     memcpy(outputs[i], rq.framesd.frames + i * sampleFrames,
            sizeof (double) * sampleFrames);
+
+  pthread_mutex_unlock(&vbe->lock);
 }
 
 float vst_bridge_call_get_parameter(AEffect* effect,
@@ -163,6 +181,9 @@ float vst_bridge_call_get_parameter(AEffect* effect,
 {
   struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
   struct vst_bridge_request rq;
+
+  pthread_mutex_lock(&vbe->lock);
+
   rq.tag         = vbe->next_tag;
   rq.cmd         = VST_BRIDGE_CMD_GET_PARAMETER;
   rq.param.index = index;
@@ -170,6 +191,9 @@ float vst_bridge_call_get_parameter(AEffect* effect,
 
   write(vbe->socket, &rq, sizeof (rq));
   vst_bridge_wait_response(vbe, &rq, rq.tag);
+
+  pthread_mutex_unlock(&vbe->lock);
+
   return rq.param.value;
 }
 
@@ -179,6 +203,9 @@ void vst_bridge_call_set_parameter(AEffect* effect,
 {
   struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
   struct vst_bridge_request rq;
+
+  pthread_mutex_lock(&vbe->lock);
+
   rq.tag         = vbe->next_tag;
   rq.cmd         = VST_BRIDGE_CMD_SET_PARAMETER;
   rq.param.index = index;
@@ -186,18 +213,23 @@ void vst_bridge_call_set_parameter(AEffect* effect,
   vbe->next_tag += 2;
 
   write(vbe->socket, &rq, sizeof (rq));
+
+  pthread_mutex_unlock(&vbe->lock);
 }
 
-VstIntPtr vst_bridge_call_effect_dispatcher(AEffect*  effect,
-                                            VstInt32  opcode,
-                                            VstInt32  index,
-                                            VstIntPtr value,
-                                            void*     ptr,
-                                            float     opt)
+VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
+                                             VstInt32  opcode,
+                                             VstInt32  index,
+                                             VstIntPtr value,
+                                             void*     ptr,
+                                             float     opt)
 {
   struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
   struct vst_bridge_request rq;
   ssize_t len;
+
+  dprintf(vbe->logfd, "[%d] effect_dispatcher(%d, %d, %d, %p, %f) => next_tag: %d\n",
+          pthread_self(), opcode, index, value, ptr, opt, vbe->next_tag);
 
   switch (opcode) {
   case effOpen:
@@ -347,6 +379,23 @@ VstIntPtr vst_bridge_call_effect_dispatcher(AEffect*  effect,
   }
 }
 
+VstIntPtr vst_bridge_call_effect_dispatcher(AEffect*  effect,
+                                            VstInt32  opcode,
+                                            VstInt32  index,
+                                            VstIntPtr value,
+                                            void*     ptr,
+                                            float     opt)
+{
+  struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
+
+  pthread_mutex_lock(&vbe->lock);
+  VstIntPtr ret =  vst_bridge_call_effect_dispatcher2(
+    effect, opcode, index, value, ptr, opt);
+  pthread_mutex_unlock(&vbe->lock);
+
+  return ret;
+}
+
 bool vst_bridge_call_plugin_main(struct vst_bridge_effect *vbe)
 {
   struct vst_bridge_request rq;
@@ -409,7 +458,14 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   if (!vbe)
     goto failed;
 
-  // set the back reference
+  {
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&vbe->lock, &attr);
+    pthread_mutexattr_destroy(&attr);
+  }
+  //vbe->lock                     = PTHREAD_MUTEX_INITIALIZER;
   vbe->audio_master             = audio_master;
   vbe->e.user                   = vbe;
   vbe->e.magic                  = kEffectMagic;
