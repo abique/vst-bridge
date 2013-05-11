@@ -9,7 +9,6 @@
 # include "../config.h"
 
 # define VST_BRIDGE_TPL_PLUGIN_PATH "VST-BRIDGE-TPL-PATH"
-# define VST_BRIDGE_BUFFER_SIZE (1024 * 1024)
 
 enum vst_bridge_cmd {
   VST_BRIDGE_CMD_PING,
@@ -85,7 +84,7 @@ struct vst_bridge_request {
   uint32_t tag;
   uint32_t cmd;
   union {
-    uint8_t data[16 * 1024];
+    uint8_t data[64 * 1024];
     struct vst_bridge_effect_request erq;
     struct vst_bridge_audio_master_request amrq;
     struct vst_bridge_frames frames;
@@ -94,10 +93,5 @@ struct vst_bridge_request {
     struct vst_bridge_plugin_data plugin_data;
   };
 } __attribute__((packed));
-
-union vst_bridge_buffer {
-  struct vst_bridge_request rq;
-  uint8_t buffer[VST_BRIDGE_BUFFER_SIZE];
-};
 
 #endif /* !COMMON_H */

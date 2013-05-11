@@ -19,7 +19,6 @@ struct vst_bridge_host {
   struct AEffect          *e;
   uint32_t                 next_tag;
   struct VstTimeInfo       time_info;
-  union vst_bridge_buffer  buffer;
 };
 
 struct vst_bridge_host g_host = {
@@ -37,10 +36,12 @@ bool wait_response(struct vst_bridge_request *rq,
   ssize_t len;
 
   while (true) {
+    dprintf(g_host.logfd, " ==> wait for tag: %d\n", tag);
     len = read(g_host.socket, rq, sizeof (*rq));
     if (len <= 0)
       return false;
     assert(len > 8);
+    dprintf(g_host.logfd, " ==> got tag: %d\n", rq->tag);
     if (rq->tag == tag)
       return true;
     if (!serve_request2(rq))
@@ -50,6 +51,8 @@ bool wait_response(struct vst_bridge_request *rq,
 
 bool serve_request2(struct vst_bridge_request *rq)
 {
+  dprintf(g_host.logfd, "serve_request2(), tag: %d\n", rq->tag);
+
   switch (rq->cmd) {
   case VST_BRIDGE_CMD_EFFECT_DISPATCHER:
     switch (rq->erq.opcode) {
@@ -139,26 +142,22 @@ bool serve_request2(struct vst_bridge_request *rq)
     return true;
 
   case VST_BRIDGE_CMD_PROCESS: {
-    dprintf(g_host.logfd, "numInputs: %d, numOutputs: %d\n",
-            g_host.e->numInputs, g_host.e->numOutputs);
-
     float *inputs[g_host.e->numInputs];
     float *outputs[g_host.e->numOutputs];
 
-    struct vst_bridge_request *rq2 = (struct vst_bridge_request *)malloc(sizeof (*rq2));
-    rq2->cmd = rq->cmd;
-    rq2->tag = rq->tag;
-    rq2->frames.nframes = rq->frames.nframes;
+    struct vst_bridge_request rq2;
+    rq2.cmd = rq->cmd;
+    rq2.tag = rq->tag;
+    rq2.frames.nframes = rq->frames.nframes;
 
     for (int i = 0; i < g_host.e->numInputs; ++i)
       inputs[i] = rq->frames.frames + i * rq->frames.nframes;
     for (int i = 0; i < g_host.e->numOutputs; ++i)
-      outputs[i] = rq2->frames.frames + i * rq->frames.nframes;
+      outputs[i] = rq2.frames.frames + i * rq->frames.nframes;
 
     g_host.e->processReplacing(g_host.e, inputs, outputs, rq->frames.nframes);
-    dprintf(g_host.logfd, "cmd: %d, tag: %d\n", rq2->cmd, rq2->tag);
-    write(g_host.socket, rq2, sizeof (*rq2));
-    free(rq2);
+    dprintf(g_host.logfd, "cmd: %d, tag: %d\n", rq2.cmd, rq2.tag);
+    write(g_host.socket, &rq2, sizeof (rq2));
     return true;
   }
 
@@ -192,8 +191,8 @@ bool serve_request2(struct vst_bridge_request *rq)
 bool serve_request(void)
 {
   uint32_t tag;
-  struct vst_bridge_request & rq = g_host.buffer.rq;
-  ssize_t len = read(g_host.socket, &g_host.buffer, sizeof (g_host.buffer));
+  struct vst_bridge_request rq;
+  ssize_t len = read(g_host.socket, &rq, sizeof (rq));
   if (len <= 0)
     return false;
 
@@ -224,7 +223,10 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
                                         float     opt)
 {
   ssize_t len;
-  struct vst_bridge_request *rq = (struct vst_bridge_request *)malloc(sizeof (*rq));;
+  struct vst_bridge_request rq;
+
+  dprintf(g_host.logfd, "host_audio_master(%d, %d, %d, %p, %f)\n",
+          opcode, index, value, ptr, opt);
 
   switch (opcode) {
     /* basic forward */
@@ -241,65 +243,58 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
   case audioMasterGetCurrentProcessLevel:
   case audioMasterGetAutomationState:
   case __audioMasterWantMidiDeprecated:
-    rq->tag = g_host.next_tag;
-    rq->cmd = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
-    rq->amrq.opcode = opcode;
-    rq->amrq.index = index;
-    rq->amrq.value = value;
-    rq->amrq.opt = opt;
+    rq.tag           = g_host.next_tag;
+    rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
+    rq.amrq.opcode   = opcode;
+    rq.amrq.index    = index;
+    rq.amrq.value    = value;
+    rq.amrq.opt      = opt;
     g_host.next_tag += 2;
 
-    write(g_host.socket, rq, sizeof (*rq));
-    wait_response(rq, rq->tag);
-    value = rq->amrq.value;
-    break;
+    write(g_host.socket, &rq, sizeof (rq));
+    wait_response(&rq, rq.tag);
+    return rq.amrq.value;
 
   case audioMasterGetTime:
-    rq->tag = g_host.next_tag;
-    rq->cmd = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
-    rq->amrq.opcode = opcode;
-    rq->amrq.index = index;
-    rq->amrq.value = value;
-    rq->amrq.opt = opt;
+    return NULL;
+
+    rq.tag           = g_host.next_tag;
+    rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
+    rq.amrq.opcode   = opcode;
+    rq.amrq.index    = index;
+    rq.amrq.value    = value;
+    rq.amrq.opt      = opt;
     g_host.next_tag += 2;
 
-    write(g_host.socket, rq, sizeof (*rq));
-    wait_response(rq, rq->tag);
-    value = rq->amrq.value;
-    if (!value)
-      break;
-    memcpy(&g_host.time_info, rq->amrq.data, sizeof (g_host.time_info));
-    value = (VstIntPtr)&g_host.time_info;
-    break;
+    write(g_host.socket, &rq, sizeof (rq));
+    wait_response(&rq, rq.tag);
+    if (!rq.amrq.value)
+      return 0;
+    memcpy(&g_host.time_info, rq.amrq.data, sizeof (g_host.time_info));
+    return (VstIntPtr)&g_host.time_info;
 
   case audioMasterGetProductString:
-    rq->tag           = g_host.next_tag;
-    rq->cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
-    rq->amrq.opcode   = opcode;
-    rq->amrq.index    = index;
-    rq->amrq.value    = value;
-    rq->amrq.opt      = opt;
+    rq.tag           = g_host.next_tag;
+    rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
+    rq.amrq.opcode   = opcode;
+    rq.amrq.index    = index;
+    rq.amrq.value    = value;
+    rq.amrq.opt      = opt;
     g_host.next_tag += 2;
 
-    write(g_host.socket, rq, sizeof (*rq));
-    if (!wait_response(rq, rq->tag)) {
-      value = 0;
-      break;
-    }
-    strcpy((char*)ptr, (const char*)rq->amrq.data);
+    write(g_host.socket, &rq, sizeof (rq));
+    if (!wait_response(&rq, rq.tag))
+      return 0;
+    strcpy((char*)ptr, (const char*)rq.amrq.data);
     dprintf(g_host.logfd, "audioMasterGetProductString: %s\n", (char*)ptr);
-    value = rq->amrq.value;
+    return rq.amrq.value;
     break;
 
   default:
-    value = 0;
     dprintf(g_host.logfd, "audioMaster unsupported: opcode: %d, index: %d,"
             " value: %d, ptr: %p, opt: %f\n", opcode, index, value, ptr, opt);
-    break;
+    return 0;
   }
-
-  free(rq);
-  return value;
 }
 
 int main(int argc, char **argv)
@@ -320,8 +315,11 @@ int main(int argc, char **argv)
 
   // check the channel
   g_host.socket = atoi(argv[2]);
-  ssize_t rbytes = read(g_host.socket, &g_host.buffer, sizeof (g_host.buffer));
-  assert(g_host.buffer.rq.cmd == VST_BRIDGE_CMD_PLUGIN_MAIN);
+  {
+    struct vst_bridge_request rq;
+    read(g_host.socket, &rq, sizeof (rq));
+    assert(rq.cmd == VST_BRIDGE_CMD_PLUGIN_MAIN);
+  }
 
   // get the plugin entry
   plug_main_f plug_main = NULL;
@@ -337,22 +335,22 @@ int main(int argc, char **argv)
 
   // send plugin main finished
   {
-    struct vst_bridge_request vbr;
-    vbr.tag = 0;
-    vbr.cmd = VST_BRIDGE_CMD_PLUGIN_MAIN;
-    vbr.plugin_data.hasSetParameter           = g_host.e->setParameter;
-    vbr.plugin_data.hasGetParameter           = g_host.e->getParameter;
-    vbr.plugin_data.hasProcessReplacing       = g_host.e->processReplacing;
-    vbr.plugin_data.hasProcessDoubleReplacing = g_host.e->processDoubleReplacing;
-    vbr.plugin_data.numPrograms               = g_host.e->numPrograms;
-    vbr.plugin_data.numParams                 = g_host.e->numParams;
-    vbr.plugin_data.numInputs                 = g_host.e->numInputs;
-    vbr.plugin_data.numOutputs                = g_host.e->numOutputs;
-    vbr.plugin_data.flags                     = g_host.e->flags;
-    vbr.plugin_data.initialDelay              = g_host.e->initialDelay;
-    vbr.plugin_data.uniqueID                  = g_host.e->uniqueID;
-    vbr.plugin_data.version                   = g_host.e->version;
-    write(g_host.socket, &vbr, sizeof (vbr));
+    struct vst_bridge_request rq;
+    rq.tag = 0;
+    rq.cmd = VST_BRIDGE_CMD_PLUGIN_MAIN;
+    rq.plugin_data.hasSetParameter           = g_host.e->setParameter;
+    rq.plugin_data.hasGetParameter           = g_host.e->getParameter;
+    rq.plugin_data.hasProcessReplacing       = g_host.e->processReplacing;
+    rq.plugin_data.hasProcessDoubleReplacing = g_host.e->processDoubleReplacing;
+    rq.plugin_data.numPrograms               = g_host.e->numPrograms;
+    rq.plugin_data.numParams                 = g_host.e->numParams;
+    rq.plugin_data.numInputs                 = g_host.e->numInputs;
+    rq.plugin_data.numOutputs                = g_host.e->numOutputs;
+    rq.plugin_data.flags                     = g_host.e->flags;
+    rq.plugin_data.initialDelay              = g_host.e->initialDelay;
+    rq.plugin_data.uniqueID                  = g_host.e->uniqueID;
+    rq.plugin_data.version                   = g_host.e->version;
+    write(g_host.socket, &rq, sizeof (rq));
   }
 
   // serve requests

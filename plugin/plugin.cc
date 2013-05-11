@@ -81,6 +81,7 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
   ssize_t len;
 
   while (true) {
+    dprintf(vbe->logfd, " ==> wait for tag: %d\n", tag);
     len = ::read(vbe->socket, rq, sizeof (*rq));
     if (len <= 0)
       return false;
@@ -89,16 +90,17 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
       dprintf(vbe->logfd, "  !!!!!!!!!!!!!!!!!!!!!!! got big len: %d\n", len);
       assert(len <= sizeof (*rq));
     }
-    if (rq->tag == tag)
+    if (rq->tag == tag) {
+      dprintf(vbe->logfd, "     ==> got expected tag: %d\n", tag);
       return true;
+    }
     // handle request
     if (rq->cmd != VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK)
       dprintf(vbe->logfd, " !!!!!!!!!!! cmd: %d, wtag: %d, gtag: %d, op: %d,"
               " index: %d, value: %d, opt: %f\n",
               rq->cmd, tag, rq->tag, rq->amrq.opcode, rq->amrq.index, rq->amrq.value, rq->amrq.opt);
     assert(rq->cmd == VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK);
-    if (!vst_bridge_handle_audio_master(vbe, rq))
-      return false;
+    vst_bridge_handle_audio_master(vbe, rq);
   }
 }
 
@@ -108,33 +110,28 @@ void vst_bridge_call_process(AEffect* effect,
                              VstInt32 sampleFrames)
 {
   struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
-  struct vst_bridge_request *rq = (struct vst_bridge_request *)malloc(sizeof (*rq));
+  struct vst_bridge_request rq;
 
-  // dprintf(vbe->logfd, "numInputs: %d, numOutputs: %d\n",
-  //         vbe->e.numInputs, vbe->e.numOutputs);
-
-  rq->tag             = vbe->next_tag;
-  rq->cmd             = VST_BRIDGE_CMD_PROCESS;
-  rq->frames.nframes  = sampleFrames;
-  vbe->next_tag      += 2;
+  rq.tag             = vbe->next_tag;
+  rq.cmd             = VST_BRIDGE_CMD_PROCESS;
+  rq.frames.nframes  = sampleFrames;
+  vbe->next_tag     += 2;
 
   for (int i = 0; i < vbe->e.numInputs; ++i)
-    memcpy(rq->frames.frames + i * sampleFrames, inputs[i],
+    memcpy(rq.frames.frames + i * sampleFrames, inputs[i],
            sizeof (float) * sampleFrames);
 
-  write(vbe->socket, rq, sizeof (*rq));
+  write(vbe->socket, &rq, sizeof (rq));
 
-  dprintf(vbe->logfd, "waiting for tag: %d\n", rq->tag);
+  dprintf(vbe->logfd, "waiting for tag: %d\n", rq.tag);
 
-  vst_bridge_wait_response(vbe, rq, rq->tag);
+  vst_bridge_wait_response(vbe, &rq, rq.tag);
 
-  dprintf(vbe->logfd, "got tag: %d\n", rq->tag);
+  dprintf(vbe->logfd, "got tag: %d\n", rq.tag);
 
   for (int i = 0; i < vbe->e.numOutputs; ++i)
-    memcpy(outputs[i], rq->frames.frames + i * sampleFrames,
+    memcpy(outputs[i], rq.frames.frames + i * sampleFrames,
            sizeof (float) * sampleFrames);
-
-  free(rq);
 }
 
 void vst_bridge_call_process_double(AEffect* effect,
@@ -352,52 +349,47 @@ VstIntPtr vst_bridge_call_effect_dispatcher(AEffect*  effect,
 
 bool vst_bridge_call_plugin_main(struct vst_bridge_effect *vbe)
 {
-  struct vst_bridge_request *rq = (struct vst_bridge_request *)malloc(sizeof (*rq));
+  struct vst_bridge_request rq;
 
-  rq->tag = 0;
-  rq->cmd = VST_BRIDGE_CMD_PLUGIN_MAIN;
-  if (write(vbe->socket, rq, sizeof (*rq)) != sizeof (*rq)) {
-    free(rq);
+  rq.tag = 0;
+  rq.cmd = VST_BRIDGE_CMD_PLUGIN_MAIN;
+  if (write(vbe->socket, &rq, sizeof (rq)) != sizeof (rq))
     return false;
-  }
 
   while (true) {
-    ssize_t rbytes = read(vbe->socket, rq, sizeof (*rq));
-    if (rbytes <= 0) {
-      free(rq);
+    ssize_t rbytes = read(vbe->socket, &rq, sizeof (rq));
+    if (rbytes <= 0)
       return false;
-    }
 
     dprintf(vbe->logfd, "cmd: %d, tag: %d, bytes: %d\n",
-            rq->cmd, rq->tag, rbytes);
+            rq.cmd, rq.tag, rbytes);
 
-    switch (rq->cmd) {
+    switch (rq.cmd) {
     case VST_BRIDGE_CMD_PLUGIN_MAIN:
-      vbe->e.numPrograms  = rq->plugin_data.numPrograms;
-      vbe->e.numParams    = rq->plugin_data.numParams;
-      vbe->e.numInputs    = rq->plugin_data.numInputs;
-      vbe->e.numOutputs   = rq->plugin_data.numOutputs;
-      vbe->e.flags        = rq->plugin_data.flags;
-      vbe->e.initialDelay = rq->plugin_data.initialDelay;
-      vbe->e.uniqueID     = rq->plugin_data.uniqueID;
-      vbe->e.version      = rq->plugin_data.version;
-      if (!rq->plugin_data.hasSetParameter)
+      vbe->e.numPrograms  = rq.plugin_data.numPrograms;
+      vbe->e.numParams    = rq.plugin_data.numParams;
+      vbe->e.numInputs    = rq.plugin_data.numInputs;
+      vbe->e.numOutputs   = rq.plugin_data.numOutputs;
+      vbe->e.flags        = rq.plugin_data.flags;
+      vbe->e.initialDelay = rq.plugin_data.initialDelay;
+      vbe->e.uniqueID     = rq.plugin_data.uniqueID;
+      vbe->e.version      = rq.plugin_data.version;
+      if (!rq.plugin_data.hasSetParameter)
         vbe->e.setParameter = NULL;
-      if (!rq->plugin_data.hasGetParameter)
+      if (!rq.plugin_data.hasGetParameter)
         vbe->e.getParameter = NULL;
-      if (!rq->plugin_data.hasProcessReplacing)
+      if (!rq.plugin_data.hasProcessReplacing)
         vbe->e.processReplacing = NULL;
-      if (!rq->plugin_data.hasProcessDoubleReplacing)
+      if (!rq.plugin_data.hasProcessDoubleReplacing)
         vbe->e.processDoubleReplacing = NULL;
-      free(rq);
       return true;
 
     case VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK:
-      vst_bridge_handle_audio_master(vbe, rq);
+      vst_bridge_handle_audio_master(vbe, &rq);
       break;
 
     default:
-      dprintf(vbe->logfd, "UNEXPECTED COMMAND: %d\n", rq->cmd);
+      dprintf(vbe->logfd, "UNEXPECTED COMMAND: %d\n", rq.cmd);
       break;
     }
   }
