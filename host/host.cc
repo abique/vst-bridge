@@ -36,12 +36,10 @@ bool wait_response(struct vst_bridge_request *rq,
   ssize_t len;
 
   while (true) {
-    dprintf(g_host.logfd, " ==> wait for tag: %d\n", tag);
     len = read(g_host.socket, rq, sizeof (*rq));
     if (len <= 0)
       return false;
     assert(len > 8);
-    dprintf(g_host.logfd, " ==> got tag: %d\n", rq->tag);
     if (rq->tag == tag)
       return true;
     serve_request2(rq);
@@ -50,8 +48,6 @@ bool wait_response(struct vst_bridge_request *rq,
 
 bool serve_request2(struct vst_bridge_request *rq)
 {
-  dprintf(g_host.logfd, "serve_request2(), tag: %d\n", rq->tag);
-
   switch (rq->cmd) {
   case VST_BRIDGE_CMD_EFFECT_DISPATCHER:
     switch (rq->erq.opcode) {
@@ -155,7 +151,6 @@ bool serve_request2(struct vst_bridge_request *rq)
       outputs[i] = rq2.frames.frames + i * rq->frames.nframes;
 
     g_host.e->processReplacing(g_host.e, inputs, outputs, rq->frames.nframes);
-    dprintf(g_host.logfd, "cmd: %d, tag: %d\n", rq2.cmd, rq2.tag);
     write(g_host.socket, &rq2, sizeof (rq2));
     return true;
   }
@@ -283,7 +278,6 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
     if (!wait_response(&rq, rq.tag))
       return 0;
     strcpy((char*)ptr, (const char*)rq.amrq.data);
-    dprintf(g_host.logfd, "audioMasterGetProductString: %s\n", (char*)ptr);
     return rq.amrq.value;
     break;
 

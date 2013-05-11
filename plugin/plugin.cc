@@ -18,11 +18,6 @@ const char g_host_path[PATH_MAX] = INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-ho
 
 #include <vst2.x/aeffectx.h>
 
-struct vst_bridge_request_list {
-  struct vst_bridge_request_list *next;
-  struct vst_bridge_request rq;
-};
-
 struct vst_bridge_effect {
   struct AEffect           e;
   int                      socket;
@@ -37,9 +32,6 @@ struct vst_bridge_effect {
 bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
                                     struct vst_bridge_request *rq)
 {
-  dprintf(vbe->logfd, "[%d] audio_master: opcode: %d, tag: %d\n",
-          pthread_self(), rq->amrq.opcode, rq->tag);
-
   switch (rq->amrq.opcode) {
   case audioMasterAutomate:
   case audioMasterVersion:
@@ -79,8 +71,6 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
     break;
   }
   write(vbe->socket, rq, sizeof (*rq));
-  dprintf(vbe->logfd, "[%d] audio_master: opcode: %d, tag: %d <== DONE\n",
-          pthread_self(), rq->amrq.opcode, rq->tag);
 }
 
 bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
@@ -90,7 +80,6 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
   ssize_t len;
 
   while (true) {
-    dprintf(vbe->logfd, " ==> [%d] wait for tag: %d\n", pthread_self(), tag);
     len = ::read(vbe->socket, rq, sizeof (*rq));
     if (len <= 0)
       return false;
@@ -99,10 +88,8 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
       dprintf(vbe->logfd, "[%d]  !!!!!!!!!!!!!!!!!!!!!!! got big len: %d\n", pthread_self(), len);
       assert(len <= sizeof (*rq));
     }
-    if (rq->tag == tag) {
-      dprintf(vbe->logfd, "     ==> got expected tag: %d\n", tag);
+    if (rq->tag == tag)
       return true;
-    }
     // handle request
     if (rq->cmd != VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK)
       dprintf(vbe->logfd, " !!!!!!!!!!! cmd: %d, wtag: %d, gtag: %d, op: %d,"
@@ -110,7 +97,6 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
               rq->cmd, tag, rq->tag, rq->amrq.opcode, rq->amrq.index, rq->amrq.value, rq->amrq.opt);
     assert(rq->cmd == VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK);
     vst_bridge_handle_audio_master(vbe, rq);
-    dprintf(vbe->logfd, "[%d] wait_response: got back on waiting tag %d\n", pthread_self(), tag);
   }
 }
 
@@ -134,12 +120,7 @@ void vst_bridge_call_process(AEffect* effect,
            sizeof (float) * sampleFrames);
 
   write(vbe->socket, &rq, sizeof (rq));
-
-  dprintf(vbe->logfd, "waiting for tag: %d\n", rq.tag);
-
   vst_bridge_wait_response(vbe, &rq, rq.tag);
-
-  dprintf(vbe->logfd, "got tag: %d\n", rq.tag);
 
   for (int i = 0; i < vbe->e.numOutputs; ++i)
     memcpy(outputs[i], rq.frames.frames + i * sampleFrames,
