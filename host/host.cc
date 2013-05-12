@@ -69,7 +69,6 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effSetSampleRate:
     case effSetBlockSize:
     case effMainsChanged:
-    case effSetSpeakerArrangement:
     case effGetParamLabel:
     case effGetParamDisplay:
     case effGetParamName:
@@ -87,6 +86,13 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effSetEditKnobMode:
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
+      write(g_host.socket, rq, sizeof (*rq));
+      return true;
+
+    case effSetSpeakerArrangement:
+      rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
+                                           (VstIntPtr)rq->erq.data, rq->erq.data,
+                                           rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
 
@@ -279,7 +285,6 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
       return 0;
     strcpy((char*)ptr, (const char*)rq.amrq.data);
     return rq.amrq.value;
-    break;
 
   default:
     dprintf(g_host.logfd, "audioMaster unsupported: opcode: %d, index: %d,"
@@ -293,16 +298,16 @@ int main(int argc, char **argv)
   HMODULE module;
   const char *plugin_path = argv[1];
 
+  g_host.logfd = open("/tmp/vst-bridge-host.log",
+                      O_CREAT | O_TRUNC | O_APPEND | O_WRONLY, 0644);
+  if (g_host.logfd < 0)
+    return 1;
+
   module = LoadLibrary(plugin_path);
   if (!module) {
     fprintf(stderr, "failed to load %s: %m\n", plugin_path);
     return 1;
   }
-
-  g_host.logfd = open("/tmp/vst-bridge-host.log",
-                      O_CREAT | O_TRUNC | O_APPEND | O_WRONLY, 0644);
-  if (g_host.logfd < 0)
-    return 1;
 
   // check the channel
   g_host.socket = atoi(argv[2]);
@@ -315,6 +320,16 @@ int main(int argc, char **argv)
   // get the plugin entry
   plug_main_f plug_main = NULL;
   plug_main = (plug_main_f)GetProcAddress((HMODULE)module, "VSTPluginMain");
+
+  if (!plug_main) {
+    plug_main = (plug_main_f)GetProcAddress((HMODULE)module, "main");
+    if (!plug_main) {
+      fprintf(stderr, "failed to find entry symbol in %s\n", plugin_path);
+      return 1;
+    }
+  }
+
+  dprintf(g_host.logfd, "ZZZZZZZZZZZZZZZZ %p\n", plug_main);
 
   // init pluging
   g_host.e = plug_main(host_audio_master);

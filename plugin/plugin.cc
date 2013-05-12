@@ -308,7 +308,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   }
 
   case effSetSpeakerArrangement: {
-    struct VstSpeakerArrangement *ar = (struct VstSpeakerArrangement *)ptr;
+    struct VstSpeakerArrangement *ar = (struct VstSpeakerArrangement *)value;
     rq.tag         = vbe->next_tag;
     rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
     rq.erq.opcode  = opcode;
