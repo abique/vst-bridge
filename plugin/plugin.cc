@@ -51,6 +51,9 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
   case __audioMasterWantMidiDeprecated:
   case audioMasterGetProductString:
   case __audioMasterTempoAtDeprecated:
+  case audioMasterUpdateDisplay:
+  case audioMasterBeginEdit:
+  case audioMasterEndEdit:
     rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
                                        rq->amrq.value, rq->amrq.data, rq->amrq.opt);
     break;
