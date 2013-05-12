@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <pthread.h>
+#include <signal.h>
 
 #include <X11/Xlib.h>
 
@@ -20,16 +21,22 @@ const char g_host_path[PATH_MAX] = INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-ho
 
 #include <vst2.x/aeffectx.h>
 
+struct vst_bridge_request_list {
+  struct vst_bridge_request rq;
+  struct vst_bridge_request_list *next;
+};
+
 struct vst_bridge_effect {
-  struct AEffect           e;
-  int                      socket;
-  pid_t                    child;
-  uint32_t                 next_tag;
-  audioMasterCallback      audio_master;
-  int                      logfd;
-  void                    *chunk;
-  pthread_mutex_t          lock;
-  ERect                    rect;
+  struct AEffect                  e;
+  int                             socket;
+  pid_t                           child;
+  uint32_t                        next_tag;
+  audioMasterCallback             audio_master;
+  int                             logfd;
+  void                           *chunk;
+  pthread_mutex_t                 lock;
+  ERect                           rect;
+  struct vst_bridge_request_list *pending;
 };
 
 bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
@@ -56,6 +63,7 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
   case audioMasterEndEdit:
     rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
                                        rq->amrq.value, rq->amrq.data, rq->amrq.opt);
+    write(vbe->socket, rq, sizeof (*rq));
     break;
 
   case audioMasterProcessEvents: {
@@ -86,6 +94,7 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
       rq->amrq.value = 1;
       memcpy(rq->amrq.data, time_info, sizeof (*time_info));
     }
+    write(vbe->socket, rq, sizeof (*rq));
     break;
   }
 
@@ -95,7 +104,6 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
             rq->amrq.opcode, rq->amrq.index, rq->amrq.value, rq->amrq.opt);
     break;
   }
-  write(vbe->socket, rq, sizeof (*rq));
 }
 
 bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
@@ -105,23 +113,36 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
   ssize_t len;
 
   while (true) {
+    struct vst_bridge_request_list **it;
+    for (it = &vbe->pending; (*it); it = &(*it)->next) {
+      if ((*it)->rq.tag != tag)
+        continue;
+      memcpy(rq, &(*it)->rq, sizeof (*rq));
+      struct vst_bridge_request_list *tmp = *it;
+      *it = tmp->next;
+      free(tmp);
+      return true;
+    }
+
     len = ::read(vbe->socket, rq, sizeof (*rq));
     if (len <= 0)
       return false;
     assert(len > 8);
-    if (len > sizeof (*rq)) {
-      dprintf(vbe->logfd, "[%d]  !!!!!!!!!!!!!!!!!!!!!!! got big len: %d\n", pthread_self(), len);
-      assert(len <= sizeof (*rq));
-    }
+
     if (rq->tag == tag)
       return true;
+
     // handle request
-    if (rq->cmd != VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK)
-      dprintf(vbe->logfd, " !!!!!!!!!!! cmd: %d, wtag: %d, gtag: %d, op: %d,"
-              " index: %d, value: %d, opt: %f\n",
-              rq->cmd, tag, rq->tag, rq->amrq.opcode, rq->amrq.index, rq->amrq.value, rq->amrq.opt);
-    assert(rq->cmd == VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK);
-    vst_bridge_handle_audio_master(vbe, rq);
+    if (rq->cmd == VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK) {
+      vst_bridge_handle_audio_master(vbe, rq);
+      continue;
+    }
+
+    // queue
+    struct vst_bridge_request_list *next = (struct vst_bridge_request_list *)malloc(sizeof (*next));
+    next->next = vbe->pending;
+    vbe->pending = next;
+    memcpy(&next->rq, rq, sizeof (rq));
   }
 }
 
@@ -234,7 +255,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   struct vst_bridge_request rq;
   ssize_t len;
 
-  dprintf(vbe->logfd, "[%d] effect_dispatcher(%d, %d, %d, %p, %f) => next_tag: %d\n",
+  dprintf(vbe->logfd, "[%p] effect_dispatcher(%d, %d, %d, %p, %f) => next_tag: %d\n",
           pthread_self(), opcode, index, value, ptr, opt, vbe->next_tag);
 
   switch (opcode) {
@@ -297,23 +318,22 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     vbe->next_tag += 2;
 
     write(vbe->socket, &rq, sizeof (rq));
-    // don't wait for an answer
-    return 0;
+    vst_bridge_wait_response(vbe, &rq, rq.tag);
+    return rq.erq.value;
   }
 
   case effEditGetRect: {
-    // rq.tag         = vbe->next_tag;
-    // rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
-    // rq.erq.opcode  = opcode;
-    // rq.erq.index   = index;
-    // rq.erq.value   = value;
-    // rq.erq.opt     = opt;
-    // vbe->next_tag += 2;
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
 
-    // write(vbe->socket, &rq, sizeof (rq));
-    // vst_bridge_wait_response(vbe, &rq, rq.tag);
-    // memcpy(&vbe->rect, rq.erq.data, sizeof (vbe->rect));
-    memset(&vbe->rect, 0, sizeof (vbe->rect));
+    write(vbe->socket, &rq, sizeof (rq));
+    vst_bridge_wait_response(vbe, &rq, rq.tag);
+    memcpy(&vbe->rect, rq.erq.data, sizeof (vbe->rect));
     ERect **r = (ERect **)ptr;
     *r = &vbe->rect;
     return rq.amrq.value;
@@ -418,8 +438,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     // compute the size
     struct VstEvents *evs = (struct VstEvents *)ptr;
     struct vst_bridge_midi_events *mes = (struct vst_bridge_midi_events *)rq.erq.data;
-    if (!mes)
-      return 0;
 
     rq.tag         = vbe->next_tag;
     rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
@@ -535,7 +553,6 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
     pthread_mutex_init(&vbe->lock, &attr);
     pthread_mutexattr_destroy(&attr);
   }
-  //vbe->lock                     = PTHREAD_MUTEX_INITIALIZER;
   vbe->audio_master             = audio_master;
   vbe->e.user                   = vbe;
   vbe->e.magic                  = kEffectMagic;
@@ -544,6 +561,7 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   vbe->e.getParameter           = vst_bridge_call_get_parameter;
   vbe->e.processReplacing       = vst_bridge_call_process;
   vbe->e.processDoubleReplacing = vst_bridge_call_process_double;
+  vbe->pending                  = NULL;
 
   // init the logger
   vbe->logfd = open("/tmp/vst-bridge-pluging.log",

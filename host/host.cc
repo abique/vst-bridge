@@ -30,6 +30,7 @@ struct vst_bridge_host {
   struct VstTimeInfo       time_info;
   HWND                     hwnd;
   DWORD                    main_thread_id;
+  pthread_mutex_t          lock;
 };
 
 struct vst_bridge_host g_host = {
@@ -60,6 +61,9 @@ bool wait_response(struct vst_bridge_request *rq,
 
 bool serve_request2(struct vst_bridge_request *rq)
 {
+  dprintf(g_host.logfd, "[%p] serve request: tag: %d, cmd: %d\n",
+          pthread_self(), rq->tag, rq->cmd);
+
   switch (rq->cmd) {
   case VST_BRIDGE_CMD_EFFECT_DISPATCHER:
     switch (rq->erq.opcode) {
@@ -103,13 +107,14 @@ bool serve_request2(struct vst_bridge_request *rq)
       return true;
 
     case effEditOpen: {
-      g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
+      rq->erq.value = g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
+      write(g_host.socket, rq, sizeof (*rq));
       ERect * rect = NULL;
       g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
       if (rect) {
         SetWindowPos(g_host.hwnd, 0, 0, 0,
-                     rect->right - rect->left,
-                     rect->bottom - rect->top,
+                     rect->right - rect->left + 15,
+                     rect->bottom - rect->top + 30,
                      SWP_NOACTIVATE | SWP_NOMOVE |
                      SWP_NOOWNERZORDER | SWP_NOZORDER);
       }
@@ -203,24 +208,28 @@ bool serve_request2(struct vst_bridge_request *rq)
     double *inputs[g_host.e->numInputs];
     double *outputs[g_host.e->numOutputs];
 
-    struct vst_bridge_request *rq2 = (struct vst_bridge_request *)malloc(sizeof (*rq2));
-    rq2->cmd = rq->cmd;
-    rq2->tag = rq->tag;
-    rq2->framesd.nframes = rq->framesd.nframes;
+    struct vst_bridge_request rq2;
+    rq2.cmd = rq->cmd;
+    rq2.tag = rq->tag;
+    rq2.framesd.nframes = rq->framesd.nframes;
 
     for (int i = 0; i < g_host.e->numInputs; ++i)
       inputs[i] = rq->framesd.frames + i * rq->framesd.nframes;
     for (int i = 0; i < g_host.e->numOutputs; ++i)
-      outputs[i] = rq2->framesd.frames + i * rq->framesd.nframes;
+      outputs[i] = rq2.framesd.frames + i * rq->framesd.nframes;
 
     g_host.e->processDoubleReplacing(g_host.e, inputs, outputs, rq->framesd.nframes);
-    write(g_host.socket, rq2, sizeof (*rq2));
-    free(rq2);
+    write(g_host.socket, &rq2, sizeof (rq2));
     return true;
   }
 
+  case VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK:
+    dprintf(g_host.logfd, "  !!!!!!!!!!! UNEXPECTED AMC: tag: %d, opcode: %d\n",
+            rq->tag, rq->amrq.opcode);
+    return true;
+
   default:
-    dprintf(g_host.logfd, "  !!!!!!!!!!! UNEXPECTED: tag: %d, cmd: %d\n",
+    dprintf(g_host.logfd, "  !!!!!!!!!!! UNEXPECTED CMD: tag: %d, cmd: %d\n",
             rq->tag, rq->cmd);
     return true;
   }
@@ -230,9 +239,14 @@ bool serve_request(void)
 {
   uint32_t tag;
   struct vst_bridge_request rq;
+
+  pthread_mutex_lock(&g_host.lock);
+
   ssize_t len = read(g_host.socket, &rq, sizeof (rq));
-  if (len <= 0)
+  if (len <= 0) {
+    pthread_mutex_unlock(&g_host.lock);
     return false;
+  }
 
   sigset_t _signals;
   sigemptyset(&_signals);
@@ -250,21 +264,22 @@ bool serve_request(void)
   bool ret = serve_request2(&rq);
   pthread_sigmask(SIG_UNBLOCK, &_signals, 0);
 
+  pthread_mutex_unlock(&g_host.lock);
   return ret;
 }
 
-VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
-                                        VstInt32  opcode,
-                                        VstInt32  index,
-                                        VstIntPtr value,
-                                        void*     ptr,
-                                        float     opt)
+VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
+                                         VstInt32  opcode,
+                                         VstInt32  index,
+                                         VstIntPtr value,
+                                         void*     ptr,
+                                         float     opt)
 {
   ssize_t len;
   struct vst_bridge_request rq;
 
-  // dprintf(g_host.logfd, "host_audio_master(%d, %d, %d, %p, %f)\n",
-  //         opcode, index, value, ptr, opt);
+  dprintf(g_host.logfd, "[%p] host_audio_master(%d, %d, %d, %p, %f) => %d\n",
+          pthread_self(), opcode, index, value, ptr, opt, g_host.next_tag);
 
   switch (opcode) {
     /* basic forward */
@@ -300,8 +315,6 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
   case audioMasterProcessEvents: {
     struct VstEvents *evs = (struct VstEvents *)ptr;
     struct vst_bridge_midi_events *mes = (struct vst_bridge_midi_events *)rq.erq.data;
-    if (!mes)
-      return 0;
 
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
@@ -319,12 +332,12 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
     }
 
     write(g_host.socket, &rq, sizeof (rq));
-    if (!wait_response(&rq, rq.tag))
-      return 0;
+    wait_response(&rq, rq.tag);
     return rq.amrq.value;
   }
 
   case audioMasterGetTime:
+    return 0;
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;
@@ -365,6 +378,35 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
   }
 }
 
+VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
+                                        VstInt32  opcode,
+                                        VstInt32  index,
+                                        VstIntPtr value,
+                                        void*     ptr,
+                                        float     opt)
+{
+  sigset_t _signals;
+  sigemptyset(&_signals);
+  sigaddset(&_signals, SIGHUP);
+  sigaddset(&_signals, SIGINT);
+  sigaddset(&_signals, SIGQUIT);
+  sigaddset(&_signals, SIGPIPE);
+  sigaddset(&_signals, SIGTERM);
+  sigaddset(&_signals, SIGUSR1);
+  sigaddset(&_signals, SIGUSR2);
+  sigaddset(&_signals, SIGCHLD);
+  sigaddset(&_signals, SIGALRM);
+  sigaddset(&_signals, SIGURG);
+  pthread_sigmask(SIG_BLOCK, &_signals, 0);
+
+  pthread_mutex_lock(&g_host.lock);
+  int ret = host_audio_master2(effect, opcode, index, value, ptr, opt);
+  pthread_mutex_unlock(&g_host.lock);
+
+  pthread_sigmask(SIG_UNBLOCK, &_signals, 0);
+  return ret;
+}
+
 LRESULT WINAPI
 MainProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -397,6 +439,13 @@ int main(int argc, char **argv)
     return 1;
 
   g_host.main_thread_id = GetCurrentThreadId();
+  {
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&g_host.lock, &attr);
+    pthread_mutexattr_destroy(&attr);
+  }
 
   module = LoadLibrary(plugin_path);
   if (!module) {
