@@ -19,6 +19,12 @@
 const char g_plugin_path[PATH_MAX] = VST_BRIDGE_TPL_PLUGIN_PATH;
 const char g_host_path[PATH_MAX] = INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-host-32.exe";
 
+#if 0
+# define LOG(Args...) fprintf(stderr, Args)
+#else
+# define LOG(Args...)
+#endif
+
 #include <vst2.x/aeffectx.h>
 
 struct vst_bridge_request_list {
@@ -32,7 +38,6 @@ struct vst_bridge_effect {
   pid_t                           child;
   uint32_t                        next_tag;
   audioMasterCallback             audio_master;
-  int                             logfd;
   void                           *chunk;
   pthread_mutex_t                 lock;
   ERect                           rect;
@@ -99,9 +104,9 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
   }
 
   default:
-    dprintf(vbe->logfd, "audio master callback (unhandled): op: %d,"
-            " index: %d, value: %d, opt: %f\n",
-            rq->amrq.opcode, rq->amrq.index, rq->amrq.value, rq->amrq.opt);
+    LOG("audio master callback (unhandled): op: %d,"
+        " index: %d, value: %d, opt: %f\n",
+        rq->amrq.opcode, rq->amrq.index, rq->amrq.value, rq->amrq.opt);
     break;
   }
 }
@@ -255,8 +260,8 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   struct vst_bridge_request rq;
   ssize_t len;
 
-  dprintf(vbe->logfd, "[%p] effect_dispatcher(%d, %d, %d, %p, %f) => next_tag: %d\n",
-          pthread_self(), opcode, index, value, ptr, opt, vbe->next_tag);
+  LOG("[%p] effect_dispatcher(%d, %d, %d, %p, %f) => next_tag: %d\n",
+      pthread_self(), opcode, index, value, ptr, opt, vbe->next_tag);
 
   switch (opcode) {
   case effOpen:
@@ -408,7 +413,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     vbe->next_tag += 2;
 
     if (value > sizeof (rq) - sizeof (rq.erq) - 8)
-      dprintf(vbe->logfd, " !!!!!!!!!!! big SetChunk: %d\n", value);
+      LOG(" !!!!!!!!!!! big SetChunk: %d\n", value);
     assert(value < sizeof (rq) - sizeof (rq.erq) - 8);
     memcpy(rq.erq.data, ptr, value);
     write(vbe->socket, &rq, sizeof (rq));
@@ -461,8 +466,8 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   }
 
   default:
-    dprintf(vbe->logfd, "effectDispatcher unsupported: opcode: %d, index: %d,"
-            " value: %d, ptr: %p, opt: %f\n", opcode, index, value, ptr, opt);
+    LOG("effectDispatcher unsupported: opcode: %d, index: %d,"
+        " value: %d, ptr: %p, opt: %f\n", opcode, index, value, ptr, opt);
     return 0;
   }
 }
@@ -498,8 +503,7 @@ bool vst_bridge_call_plugin_main(struct vst_bridge_effect *vbe)
     if (rbytes <= 0)
       return false;
 
-    dprintf(vbe->logfd, "cmd: %d, tag: %d, bytes: %d\n",
-            rq.cmd, rq.tag, rbytes);
+    LOG("cmd: %d, tag: %d, bytes: %d\n", rq.cmd, rq.tag, rbytes);
 
     switch (rq.cmd) {
     case VST_BRIDGE_CMD_PLUGIN_MAIN:
@@ -526,7 +530,7 @@ bool vst_bridge_call_plugin_main(struct vst_bridge_effect *vbe)
       break;
 
     default:
-      dprintf(vbe->logfd, "UNEXPECTED COMMAND: %d\n", rq.cmd);
+      LOG("UNEXPECTED COMMAND: %d\n", rq.cmd);
       break;
     }
   }
@@ -563,10 +567,6 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   vbe->e.processDoubleReplacing = vst_bridge_call_process_double;
   vbe->pending                  = NULL;
 
-  // init the logger
-  vbe->logfd = open("/tmp/vst-bridge-pluging.log",
-                    O_CREAT | O_TRUNC | O_APPEND | O_WRONLY, 0644);
-
   // initialize sockets
   if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, fds))
     goto failed_sockets;
@@ -597,7 +597,7 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
     return NULL;
   }
 
-  dprintf(vbe->logfd, " => PluginMain done!\n");
+  LOG(" => PluginMain done!\n");
 
   // Return the VST AEffect structure
   return &vbe->e;
@@ -606,7 +606,6 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   close(fds[0]);
   close(fds[1]);
   failed_sockets:
-  close(vbe->logfd);
   failed:
   free(vbe);
   return NULL;

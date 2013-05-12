@@ -19,10 +19,15 @@
 #define VST_BRIDGE_WMSG_IO 19041
 #define VST_BRIDGE_WMSG_EDIT_OPEN 19042
 
+#if 0
+# define LOG(Args...) fprintf(stderr, Args)
+#else
+# define LOG(Args...)
+#endif
+
 typedef AEffect *(*plug_main_f)(audioMasterCallback audioMaster);
 
 struct vst_bridge_host {
-  int                      logfd;
   int                      socket;
   struct AEffect          *e;
   uint32_t                 next_tag;
@@ -34,7 +39,6 @@ struct vst_bridge_host {
 };
 
 struct vst_bridge_host g_host = {
-  -1,
   -1,
   NULL,
   1,
@@ -61,8 +65,8 @@ bool wait_response(struct vst_bridge_request *rq,
 
 bool serve_request2(struct vst_bridge_request *rq)
 {
-  dprintf(g_host.logfd, "[%p] serve request: tag: %d, cmd: %d\n",
-          pthread_self(), rq->tag, rq->cmd);
+  LOG("[%p] serve request: tag: %d, cmd: %d\n",
+      pthread_self(), rq->tag, rq->cmd);
 
   switch (rq->cmd) {
   case VST_BRIDGE_CMD_EFFECT_DISPATCHER:
@@ -144,7 +148,7 @@ bool serve_request2(struct vst_bridge_request *rq)
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, &ptr, rq->erq.opt);
       if (rq->erq.value > sizeof (*rq) - 8 - sizeof (rq->erq))
-        dprintf(g_host.logfd, " !!!!!!!!!!!!!! very big effGetChunk: %d\n", rq->erq.value);
+        LOG(" !!!!!!!!!!!!!! very big effGetChunk: %d\n", rq->erq.value);
       memcpy(rq->erq.data, ptr, rq->erq.value);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
@@ -169,7 +173,7 @@ bool serve_request2(struct vst_bridge_request *rq)
     }
 
     default:
-      dprintf(g_host.logfd, "effectDispatcher unsupported: opcode: %d, index: %d,"
+      LOG("effectDispatcher unsupported: opcode: %d, index: %d,"
               " value: %d, opt: %f\n", rq->erq.opcode, rq->erq.index,
               rq->erq.value, rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
@@ -224,13 +228,12 @@ bool serve_request2(struct vst_bridge_request *rq)
   }
 
   case VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK:
-    dprintf(g_host.logfd, "  !!!!!!!!!!! UNEXPECTED AMC: tag: %d, opcode: %d\n",
-            rq->tag, rq->amrq.opcode);
+    LOG("  !!!!!!!!!!! UNEXPECTED AMC: tag: %d, opcode: %d\n",
+        rq->tag, rq->amrq.opcode);
     return true;
 
   default:
-    dprintf(g_host.logfd, "  !!!!!!!!!!! UNEXPECTED CMD: tag: %d, cmd: %d\n",
-            rq->tag, rq->cmd);
+    LOG("  !!!!!!!!!!! UNEXPECTED CMD: tag: %d, cmd: %d\n", rq->tag, rq->cmd);
     return true;
   }
 }
@@ -278,8 +281,8 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   ssize_t len;
   struct vst_bridge_request rq;
 
-  dprintf(g_host.logfd, "[%p] host_audio_master(%d, %d, %d, %p, %f) => %d\n",
-          pthread_self(), opcode, index, value, ptr, opt, g_host.next_tag);
+  LOG("[%p] host_audio_master(%d, %d, %d, %p, %f) => %d\n",
+      pthread_self(), opcode, index, value, ptr, opt, g_host.next_tag);
 
   switch (opcode) {
     /* basic forward */
@@ -372,8 +375,8 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     return false;
 
   default:
-    dprintf(g_host.logfd, "audioMaster unsupported: opcode: %d, index: %d,"
-            " value: %d, ptr: %p, opt: %f\n", opcode, index, value, ptr, opt);
+    LOG("audioMaster unsupported: opcode: %d, index: %d,"
+        " value: %d, ptr: %p, opt: %f\n", opcode, index, value, ptr, opt);
     return 0;
   }
 }
@@ -433,11 +436,6 @@ int main(int argc, char **argv)
   HMODULE module;
   const char *plugin_path = argv[1];
 
-  g_host.logfd = open("/tmp/vst-bridge-host.log",
-                      O_CREAT | O_TRUNC | O_APPEND | O_WRONLY, 0644);
-  if (g_host.logfd < 0)
-    return 1;
-
   g_host.main_thread_id = GetCurrentThreadId();
   {
     pthread_mutexattr_t attr;
@@ -477,7 +475,7 @@ int main(int argc, char **argv)
   g_host.e = plug_main(host_audio_master);
 
   if (!g_host.e) {
-    dprintf(g_host.logfd, "failed to initialize plugin\n");
+    LOG("failed to initialize plugin\n");
     return 1;
   }
 
@@ -515,7 +513,7 @@ int main(int argc, char **argv)
   wclass.hIconSm       = 0;
 
   if (!RegisterClassEx(&wclass))
-    dprintf(g_host.logfd, "failed to register Windows application class\n");
+    LOG("failed to register Windows application class\n");
 
   g_host.hwnd = CreateWindow(APPLICATION_CLASS_NAME,
                              "app name",
@@ -524,7 +522,7 @@ int main(int argc, char **argv)
                              CW_USEDEFAULT, CW_USEDEFAULT,
                              0, 0, GetModuleHandle(NULL), 0);
   if (!g_host.hwnd)
-    dprintf(g_host.logfd, "failed to create window\n");
+    LOG("failed to create window\n");
 
   // HANDLE audio_thread = CreateThread(
   //   NULL, 8 * 1024 * 1024, vst_bridge_audio_thread, NULL, 0, NULL);
