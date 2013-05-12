@@ -4,12 +4,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <wchar.h>
+#include <pthread.h>
 
 #include <windows.h>
 
 #include </usr/include/vst2.x/aeffectx.h>
 
 #include "../common/common.h"
+
+#define APPLICATION_CLASS_NAME "VST-BRIDGE"
 
 typedef AEffect *(*plug_main_f)(audioMasterCallback audioMaster);
 
@@ -18,14 +22,17 @@ struct vst_bridge_host {
   int                      socket;
   struct AEffect          *e;
   uint32_t                 next_tag;
+  bool                     stop;
   struct VstTimeInfo       time_info;
+  HWND                     hwnd;
 };
 
 struct vst_bridge_host g_host = {
   -1,
   -1,
   NULL,
-  1
+  1,
+  false
 };
 
 bool serve_request2(struct vst_bridge_request *rq);
@@ -84,10 +91,28 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effEditKeyUp:
     case effEditKeyDown:
     case effSetEditKnobMode:
+    case effSetChunk:
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
+
+    case effEditOpen: {
+      rq->erq.value = g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
+      write(g_host.socket, rq, sizeof (*rq));
+      ERect * rect = NULL;
+      g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
+      if (rect) {
+        SetWindowPos(g_host.hwnd, 0, 0, 0,
+                     rect->right - rect->left + 6,
+                     rect->bottom - rect->top + 25,
+                     SWP_NOACTIVATE | SWP_NOMOVE |
+                     SWP_NOOWNERZORDER | SWP_NOZORDER);
+      }
+      ShowWindow(g_host.hwnd, SW_SHOWNORMAL);
+      UpdateWindow(g_host.hwnd);
+      return true;
+    }
 
     case effSetSpeakerArrangement:
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
@@ -293,6 +318,28 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
   }
 }
 
+LRESULT WINAPI
+MainProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+  switch (msg) {
+  case WM_CLOSE:
+    //remoteVSTServerInstance->terminateGUIProcess();
+    //remoteVSTServerInstance->hideGUI();
+    return TRUE;
+  }
+
+  return DefWindowProc(hWnd, msg, wParam, lParam);
+}
+
+DWORD WINAPI vst_bridge_audio_thread(void *arg)
+{
+  while (!g_host.stop)
+    if (!serve_request())
+      break;
+  g_host.stop = true;
+  return NULL;
+}
+
 int main(int argc, char **argv)
 {
   HMODULE module;
@@ -310,7 +357,7 @@ int main(int argc, char **argv)
   }
 
   // check the channel
-  g_host.socket = atoi(argv[2]);
+  g_host.socket = strtol(argv[2], NULL, 10);
   {
     struct vst_bridge_request rq;
     read(g_host.socket, &rq, sizeof (rq));
@@ -328,8 +375,6 @@ int main(int argc, char **argv)
       return 1;
     }
   }
-
-  dprintf(g_host.logfd, "ZZZZZZZZZZZZZZZZ %p\n", plug_main);
 
   // init pluging
   g_host.e = plug_main(host_audio_master);
@@ -359,9 +404,45 @@ int main(int argc, char **argv)
     write(g_host.socket, &rq, sizeof (rq));
   }
 
+  WNDCLASSEX wclass;
+  wclass.cbSize        = sizeof(WNDCLASSEX);
+  wclass.style         = 0;
+  wclass.lpfnWndProc   = MainProc;
+  wclass.cbClsExtra    = 0;
+  wclass.cbWndExtra    = 0;
+  wclass.hInstance     = GetModuleHandle(NULL);
+  wclass.hIcon         = LoadIcon(GetModuleHandle(NULL), APPLICATION_CLASS_NAME);
+  wclass.hCursor       = LoadCursor(0, IDI_APPLICATION);
+  wclass.lpszMenuName  = "MENU_VST_BRIDGE";
+  wclass.lpszClassName = APPLICATION_CLASS_NAME;
+  wclass.hIconSm       = 0;
+
+  if (!RegisterClassEx(&wclass))
+    dprintf(g_host.logfd, "failed to register Windows application class\n");
+
+  g_host.hwnd = CreateWindow(APPLICATION_CLASS_NAME,
+                             "app name",
+                             WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
+                             CW_USEDEFAULT, CW_USEDEFAULT,
+                             CW_USEDEFAULT, CW_USEDEFAULT,
+                             0, 0, GetModuleHandle(NULL), 0);
+  if (!g_host.hwnd)
+    dprintf(g_host.logfd, "failed to create window\n");
+
   // serve requests
-  while (serve_request())
-    ;
+  MSG  msg;
+
+  HANDLE audio_thread = CreateThread(
+    NULL, 8 * 1024 * 1024, vst_bridge_audio_thread, NULL, 0, NULL);
+  if (!audio_thread) {
+    dprintf(g_host.logfd, "failed to create audio thread: %m\n");
+    return 1;
+  }
+
+  while (!g_host.stop) {
+    while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
+      DispatchMessage(&msg);
+  }
 
   FreeLibrary(module);
   return 0;

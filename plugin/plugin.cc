@@ -231,6 +231,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   case effStopProcess:
   case __effConnectOutputDeprecated:
   case __effConnectInputDeprecated:
+  case effEditOpen:
   case effEditClose:
   case effEditIdle:
   case effEditKeyUp:
@@ -304,6 +305,24 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     vbe->chunk = chunk;
     memcpy(vbe->chunk, rq.erq.data, rq.erq.value);
     *((void **)ptr) = chunk;
+    return rq.erq.value;
+  }
+
+  case effSetChunk: {
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
+
+    if (value > sizeof (rq) - sizeof (rq.erq) - 8)
+      dprintf(vbe->logfd, " !!!!!!!!!!! big SetChunk: %d\n", value);
+    assert(value < sizeof (rq) - sizeof (rq.erq) - 8);
+    memcpy(rq.erq.data, ptr, value);
+    write(vbe->socket, &rq, sizeof (rq));
+    vst_bridge_wait_response(vbe, &rq, rq.tag);
     return rq.erq.value;
   }
 

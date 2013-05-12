@@ -23,3 +23,8 @@ The buffer oriented tasks, like process, ... may be done via shared memory.
  - tag: 32 bits
  - cmd: 32 bits
  - len(data): 32 bits
+
+= Extra info =
+
+http://reaper.fm/sdk/vst/vst_ext.php
+http://www.asseca.org/vst-24-specs/efVendorSpecific.html
