@@ -15,6 +15,8 @@
 
 #define APPLICATION_CLASS_NAME "VST-BRIDGE"
 
+#define VST_BRIDGE_WMSG_EDIT_OPEN 19042
+
 typedef AEffect *(*plug_main_f)(audioMasterCallback audioMaster);
 
 struct vst_bridge_host {
@@ -25,6 +27,7 @@ struct vst_bridge_host {
   bool                     stop;
   struct VstTimeInfo       time_info;
   HWND                     hwnd;
+  DWORD                    main_thread_id;
 };
 
 struct vst_bridge_host g_host = {
@@ -98,19 +101,27 @@ bool serve_request2(struct vst_bridge_request *rq)
       return true;
 
     case effEditOpen: {
-      rq->erq.value = g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
-      write(g_host.socket, rq, sizeof (*rq));
+      g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
       ERect * rect = NULL;
       g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
       if (rect) {
         SetWindowPos(g_host.hwnd, 0, 0, 0,
-                     rect->right - rect->left + 6,
-                     rect->bottom - rect->top + 25,
+                     rect->right - rect->left,
+                     rect->bottom - rect->top,
                      SWP_NOACTIVATE | SWP_NOMOVE |
                      SWP_NOOWNERZORDER | SWP_NOZORDER);
       }
       ShowWindow(g_host.hwnd, SW_SHOWNORMAL);
       UpdateWindow(g_host.hwnd);
+      return true;
+    }
+
+    case effEditGetRect: {
+      ERect * rect = NULL;
+      rq->erq.value = g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
+      if (rect)
+        memcpy(rq->erq.data, rect, sizeof (*rect));
+      write(g_host.socket, rq, sizeof (*rq));
       return true;
     }
 
@@ -124,7 +135,7 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effGetChunk: {
       void *ptr;
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
-                                          rq->erq.value, &ptr, rq->erq.opt);
+                                           rq->erq.value, &ptr, rq->erq.opt);
       if (rq->erq.value > sizeof (*rq) - 8 - sizeof (rq->erq))
         dprintf(g_host.logfd, " !!!!!!!!!!!!!! very big effGetChunk: %d\n", rq->erq.value);
       memcpy(rq->erq.data, ptr, rq->erq.value);
@@ -144,7 +155,7 @@ bool serve_request2(struct vst_bridge_request *rq)
       }
 
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
-                                          rq->erq.value, ves, rq->erq.opt);
+                                           rq->erq.value, ves, rq->erq.opt);
       free(ves);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
@@ -323,8 +334,7 @@ MainProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
   switch (msg) {
   case WM_CLOSE:
-    //remoteVSTServerInstance->terminateGUIProcess();
-    //remoteVSTServerInstance->hideGUI();
+    ShowWindow(g_host.hwnd, SW_HIDE);
     return TRUE;
   }
 
@@ -349,6 +359,8 @@ int main(int argc, char **argv)
                       O_CREAT | O_TRUNC | O_APPEND | O_WRONLY, 0644);
   if (g_host.logfd < 0)
     return 1;
+
+  g_host.main_thread_id = GetCurrentThreadId();
 
   module = LoadLibrary(plugin_path);
   if (!module) {
@@ -405,7 +417,7 @@ int main(int argc, char **argv)
   }
 
   WNDCLASSEX wclass;
-  wclass.cbSize        = sizeof(WNDCLASSEX);
+  wclass.cbSize        = sizeof (WNDCLASSEX);
   wclass.style         = 0;
   wclass.lpfnWndProc   = MainProc;
   wclass.cbClsExtra    = 0;
@@ -429,9 +441,6 @@ int main(int argc, char **argv)
   if (!g_host.hwnd)
     dprintf(g_host.logfd, "failed to create window\n");
 
-  // serve requests
-  MSG  msg;
-
   HANDLE audio_thread = CreateThread(
     NULL, 8 * 1024 * 1024, vst_bridge_audio_thread, NULL, 0, NULL);
   if (!audio_thread) {
@@ -440,8 +449,10 @@ int main(int argc, char **argv)
   }
 
   while (!g_host.stop) {
-    while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
+    MSG  msg;
+    while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
       DispatchMessage(&msg);
+    }
   }
 
   FreeLibrary(module);

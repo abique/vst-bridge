@@ -8,6 +8,8 @@
 #include <assert.h>
 #include <pthread.h>
 
+#include <X11/Xlib.h>
+
 #define __cdecl
 
 #include "../config.h"
@@ -27,6 +29,7 @@ struct vst_bridge_effect {
   int                      logfd;
   void                    *chunk;
   pthread_mutex_t          lock;
+  ERect                    rect;
 };
 
 bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
@@ -231,12 +234,11 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   case effStopProcess:
   case __effConnectOutputDeprecated:
   case __effConnectInputDeprecated:
-  case effEditOpen:
-  case effEditClose:
+  case effSetEditKnobMode:
   case effEditIdle:
+  case effEditClose:
   case effEditKeyUp:
   case effEditKeyDown:
-  case effSetEditKnobMode:
     rq.tag         = vbe->next_tag;
     rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
     rq.erq.opcode  = opcode;
@@ -248,6 +250,52 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     write(vbe->socket, &rq, sizeof (rq));
     vst_bridge_wait_response(vbe, &rq, rq.tag);
     return rq.amrq.value;
+
+  case effEditOpen: {
+    // Display *display = (Display *)value;
+    // Window window = (Window)ptr;
+    // XEvent ev;
+
+    // memset(&ev, 0, sizeof (ev));
+
+    // ev.xclient.type = ClientMessage;
+    // ev.xclient.window = window;
+    // ev.xclient.message_type = XInternAtom(display, "WM_PROTOCOLS", true);
+    // ev.xclient.format = 32;
+    // ev.xclient.data.l[0] = XInternAtom(display, "WM_DELETE_WINDOW", false);
+    // ev.xclient.data.l[1] = CurrentTime;
+    // XSendEvent(display, window, False, NoEventMask, &ev);
+
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
+
+    write(vbe->socket, &rq, sizeof (rq));
+    // don't wait for an answer
+    return rq.amrq.value;
+  }
+
+  case effEditGetRect: {
+    // rq.tag         = vbe->next_tag;
+    // rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    // rq.erq.opcode  = opcode;
+    // rq.erq.index   = index;
+    // rq.erq.value   = value;
+    // rq.erq.opt     = opt;
+    // vbe->next_tag += 2;
+
+    // write(vbe->socket, &rq, sizeof (rq));
+    // vst_bridge_wait_response(vbe, &rq, rq.tag);
+    // memcpy(&vbe->rect, rq.erq.data, sizeof (vbe->rect));
+    memset(&vbe->rect, 0, sizeof (vbe->rect));
+    ERect **r = (ERect **)ptr;
+    *r = &vbe->rect;
+    return rq.amrq.value;
+  }
 
   case effSetProgramName:
   case effGetProgramName:
