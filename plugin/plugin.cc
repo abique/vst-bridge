@@ -50,9 +50,28 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
   case audioMasterGetAutomationState:
   case __audioMasterWantMidiDeprecated:
   case audioMasterGetProductString:
+  case __audioMasterTempoAtDeprecated:
     rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
                                        rq->amrq.value, rq->amrq.data, rq->amrq.opt);
     break;
+
+  case audioMasterProcessEvents: {
+    struct vst_bridge_midi_events *mes = (struct vst_bridge_midi_events *)rq->amrq.data;
+    struct VstEvents *ves = (struct VstEvents *)malloc(sizeof (*ves) + mes->nb * sizeof (void*));
+    ves->numEvents = mes->nb;
+    ves->reserved  = 0;
+    struct vst_bridge_midi_event *me = mes->events;
+    for (int i = 0; i < mes->nb; ++i) {
+      ves->events[i] = (VstEvent*)me;
+      me = (struct vst_bridge_midi_event *)(me->data + me->byteSize);
+    }
+
+    rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
+                                       rq->amrq.value, ves, rq->amrq.opt);
+    free(ves);
+    write(vbe->socket, rq, sizeof (*rq));
+    break;
+  }
 
   case audioMasterGetTime: {
     VstTimeInfo *time_info = (VstTimeInfo *)vbe->audio_master(
@@ -276,7 +295,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
 
     write(vbe->socket, &rq, sizeof (rq));
     // don't wait for an answer
-    return rq.amrq.value;
+    return 0;
   }
 
   case effEditGetRect: {

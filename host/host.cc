@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <wchar.h>
 #include <pthread.h>
+#include <poll.h>
 
 #include <windows.h>
 
@@ -15,6 +16,7 @@
 
 #define APPLICATION_CLASS_NAME "VST-BRIDGE"
 
+#define VST_BRIDGE_WMSG_IO 19041
 #define VST_BRIDGE_WMSG_EDIT_OPEN 19042
 
 typedef AEffect *(*plug_main_f)(audioMasterCallback audioMaster);
@@ -261,8 +263,8 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
   ssize_t len;
   struct vst_bridge_request rq;
 
-  dprintf(g_host.logfd, "host_audio_master(%d, %d, %d, %p, %f)\n",
-          opcode, index, value, ptr, opt);
+  // dprintf(g_host.logfd, "host_audio_master(%d, %d, %d, %p, %f)\n",
+  //         opcode, index, value, ptr, opt);
 
   switch (opcode) {
     /* basic forward */
@@ -279,6 +281,7 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
   case audioMasterGetCurrentProcessLevel:
   case audioMasterGetAutomationState:
   case __audioMasterWantMidiDeprecated:
+  case  __audioMasterTempoAtDeprecated:
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;
@@ -290,6 +293,33 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
     write(g_host.socket, &rq, sizeof (rq));
     wait_response(&rq, rq.tag);
     return rq.amrq.value;
+
+  case audioMasterProcessEvents: {
+    struct VstEvents *evs = (struct VstEvents *)ptr;
+    struct vst_bridge_midi_events *mes = (struct vst_bridge_midi_events *)rq.erq.data;
+    if (!mes)
+      return 0;
+
+    rq.tag           = g_host.next_tag;
+    rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
+    rq.amrq.opcode   = opcode;
+    rq.amrq.index    = index;
+    rq.amrq.value    = value;
+    rq.amrq.opt      = opt;
+    g_host.next_tag += 2;
+
+    mes->nb = evs->numEvents;
+    struct vst_bridge_midi_event *me = mes->events;
+    for (int i = 0; i < evs->numEvents; ++i) {
+      memcpy(me, evs->events[i], sizeof (*me) + evs->events[i]->byteSize);
+      me = (struct vst_bridge_midi_event *)(me->data + me->byteSize);
+    }
+
+    write(g_host.socket, &rq, sizeof (rq));
+    if (!wait_response(&rq, rq.tag))
+      return 0;
+    return rq.amrq.value;
+  }
 
   case audioMasterGetTime:
     rq.tag           = g_host.next_tag;
@@ -322,6 +352,9 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
     strcpy((char*)ptr, (const char*)rq.amrq.data);
     return rq.amrq.value;
 
+  case audioMasterOpenFileSelector:
+    return false;
+
   default:
     dprintf(g_host.logfd, "audioMaster unsupported: opcode: %d, index: %d,"
             " value: %d, ptr: %p, opt: %f\n", opcode, index, value, ptr, opt);
@@ -347,7 +380,7 @@ DWORD WINAPI vst_bridge_audio_thread(void *arg)
     if (!serve_request())
       break;
   g_host.stop = true;
-  return NULL;
+  return 0;
 }
 
 int main(int argc, char **argv)
@@ -441,17 +474,27 @@ int main(int argc, char **argv)
   if (!g_host.hwnd)
     dprintf(g_host.logfd, "failed to create window\n");
 
-  HANDLE audio_thread = CreateThread(
-    NULL, 8 * 1024 * 1024, vst_bridge_audio_thread, NULL, 0, NULL);
-  if (!audio_thread) {
-    dprintf(g_host.logfd, "failed to create audio thread: %m\n");
-    return 1;
-  }
+  // HANDLE audio_thread = CreateThread(
+  //   NULL, 8 * 1024 * 1024, vst_bridge_audio_thread, NULL, 0, NULL);
+  // if (!audio_thread) {
+  //   dprintf(g_host.logfd, "failed to create audio thread: %m\n");
+  //   return 1;
+  // }
 
-  while (!g_host.stop) {
-    MSG  msg;
-    while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
-      DispatchMessage(&msg);
+  struct pollfd pfd;
+  MSG msg;
+
+  while (true) {
+    pfd.fd = g_host.socket;
+    pfd.events = POLLIN;
+    int ret = poll(&pfd, 1, 50);
+    if (pfd.revents & POLLIN &&
+        !serve_request())
+      break;
+
+    while (GetQueueStatus(QS_ALLINPUT)) {
+      if (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
+        DispatchMessage(&msg);
     }
   }
 
