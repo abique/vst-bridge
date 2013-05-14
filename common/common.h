@@ -8,7 +8,10 @@
 
 # include "../config.h"
 
-# define VST_BRIDGE_TPL_PLUGIN_PATH "VST-BRIDGE-TPL-PATH"
+# define VST_BRIDGE_TPL_MAGIC "VST-BRIDGE-TPL-PATH"
+# define VST_BRIDGE_TPL_PATH INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-plugin-tpl.so"
+# define VST_BRIDGE_HOST32_PATH INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-host-32.exe"
+# define VST_BRIDGE_HOST64_PATH INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-host-64.exe"
 
 enum vst_bridge_cmd {
   VST_BRIDGE_CMD_PING,
@@ -84,7 +87,7 @@ struct vst_bridge_request {
   uint32_t tag;
   uint32_t cmd;
   union {
-    uint8_t data[64 * 1024];
+    uint8_t data[128 * 1024];
     struct vst_bridge_effect_request erq;
     struct vst_bridge_audio_master_request amrq;
     struct vst_bridge_frames frames;
@@ -93,5 +96,15 @@ struct vst_bridge_request {
     struct vst_bridge_plugin_data plugin_data;
   };
 } __attribute__((packed));
+
+struct vst_bridge_request_list {
+  struct vst_bridge_request rq;
+  struct vst_bridge_request_list *next;
+};
+
+#define VST_BRIDGE_ERQ_LEN(X) ((X) + 8 + sizeof (struct vst_bridge_effect_request))
+#define VST_BRIDGE_AMRQ_LEN(X) ((X) + 8 + sizeof (struct vst_bridge_audio_master_request))
+#define VST_BRIDGE_FRAMES_LEN(X) ((X) * sizeof (float) + 8 + sizeof (struct vst_bridge_frames))
+#define VST_BRIDGE_FRAMES_DOUBLE_LEN(X) ((X) * sizeof (double) + 8 + sizeof (struct vst_bridge_frames_double))
 
 #endif /* !COMMON_H */

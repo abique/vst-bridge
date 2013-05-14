@@ -16,21 +16,18 @@
 #include "../config.h"
 #include "../common/common.h"
 
-const char g_plugin_path[PATH_MAX] = VST_BRIDGE_TPL_PLUGIN_PATH;
-const char g_host_path[PATH_MAX] = INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-host-32.exe";
+const char g_plugin_path[PATH_MAX] = VST_BRIDGE_TPL_MAGIC;
+const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
 
 #if 0
 # define LOG(Args...) fprintf(stderr, Args)
 #else
-# define LOG(Args...)
+# define LOG(Args...) do { ; } while (0)
 #endif
 
-#include <vst2.x/aeffectx.h>
+#define CRIT(Args...) fprintf(stderr, Args)
 
-struct vst_bridge_request_list {
-  struct vst_bridge_request rq;
-  struct vst_bridge_request_list *next;
-};
+#include <vst2.x/aeffectx.h>
 
 struct vst_bridge_effect {
   struct AEffect                  e;
@@ -41,6 +38,7 @@ struct vst_bridge_effect {
   void                           *chunk;
   pthread_mutex_t                 lock;
   ERect                           rect;
+
   struct vst_bridge_request_list *pending;
 };
 
@@ -49,16 +47,21 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
 {
   switch (rq->amrq.opcode) {
   case audioMasterAutomate:
+  case audioMasterGetCurrentProcessLevel:
+  case audioMasterGetSampleRate:
+    rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
+                                       rq->amrq.value, rq->amrq.data, rq->amrq.opt);
+    write(vbe->socket, rq, VST_BRIDGE_AMRQ_LEN(0));
+    break;
+
   case audioMasterVersion:
   case audioMasterCurrentId:
   case audioMasterIdle:
   case audioMasterIOChanged:
   case audioMasterSizeWindow:
-  case audioMasterGetSampleRate:
   case audioMasterGetBlockSize:
   case audioMasterGetInputLatency:
   case audioMasterGetOutputLatency:
-  case audioMasterGetCurrentProcessLevel:
   case audioMasterGetAutomationState:
   case __audioMasterWantMidiDeprecated:
   case audioMasterGetProductString:
@@ -85,7 +88,7 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
     rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
                                        rq->amrq.value, ves, rq->amrq.opt);
     free(ves);
-    write(vbe->socket, rq, sizeof (*rq));
+    write(vbe->socket, rq, ((uint8_t*)me) - ((uint8_t*)rq));
     break;
   }
 
@@ -99,7 +102,7 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
       rq->amrq.value = 1;
       memcpy(rq->amrq.data, time_info, sizeof (*time_info));
     }
-    write(vbe->socket, rq, sizeof (*rq));
+    write(vbe->socket, rq, VST_BRIDGE_AMRQ_LEN(sizeof (*time_info)));
     break;
   }
 
@@ -170,7 +173,7 @@ void vst_bridge_call_process(AEffect* effect,
     memcpy(rq.frames.frames + i * sampleFrames, inputs[i],
            sizeof (float) * sampleFrames);
 
-  write(vbe->socket, &rq, sizeof (rq));
+  write(vbe->socket, &rq, VST_BRIDGE_FRAMES_LEN(vbe->e.numInputs * sampleFrames));
   vst_bridge_wait_response(vbe, &rq, rq.tag);
 
   for (int i = 0; i < vbe->e.numOutputs; ++i)
@@ -199,7 +202,7 @@ void vst_bridge_call_process_double(AEffect* effect,
     memcpy(rq.framesd.frames + i * sampleFrames, inputs[i],
            sizeof (double) * sampleFrames);
 
-  write(vbe->socket, &rq, sizeof (rq));
+  write(vbe->socket, &rq, VST_BRIDGE_FRAMES_DOUBLE_LEN(vbe->e.numInputs * sampleFrames));
   vst_bridge_wait_response(vbe, &rq, rq.tag);
   for (int i = 0; i < vbe->e.numOutputs; ++i)
     memcpy(outputs[i], rq.framesd.frames + i * sampleFrames,
@@ -341,6 +344,10 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     memcpy(&vbe->rect, rq.erq.data, sizeof (vbe->rect));
     ERect **r = (ERect **)ptr;
     *r = &vbe->rect;
+    vbe->rect.top = 0;
+    vbe->rect.bottom = 1;
+    vbe->rect.left = 0;
+    vbe->rect.right = 1;
     return rq.amrq.value;
   }
 
@@ -413,7 +420,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     vbe->next_tag += 2;
 
     if (value > sizeof (rq) - sizeof (rq.erq) - 8)
-      LOG(" !!!!!!!!!!! big SetChunk: %d\n", value);
+      CRIT(" !!!!!!!!!!! big SetChunk: %d\n", value);
     assert(value < sizeof (rq) - sizeof (rq.erq) - 8);
     memcpy(rq.erq.data, ptr, value);
     write(vbe->socket, &rq, sizeof (rq));

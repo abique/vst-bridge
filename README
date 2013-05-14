@@ -26,7 +26,6 @@ The buffer oriented tasks, like process, ... may be done via shared memory.
 
 = Roadmap =
 
- - have two unix sockets: one for the audio thread, one for the gui
  - optimize I/O (reduce the number of bytes transfered)
  - improve effSetGetChunk with large chunks
  - the maker should guess the type of dll, and update a parameter to

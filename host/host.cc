@@ -8,6 +8,8 @@
 #include <pthread.h>
 #include <poll.h>
 
+#include <list>
+
 #include <windows.h>
 
 #include </usr/include/vst2.x/aeffectx.h>
@@ -25,17 +27,22 @@
 # define LOG(Args...)
 #endif
 
-typedef AEffect *(*plug_main_f)(audioMasterCallback audioMaster);
+#define CRIT(Args...) fprintf(stderr, Args)
+
+typedef AEffect *(VSTCALLBACK *plug_main_f)(audioMasterCallback audioMaster);
 
 struct vst_bridge_host {
-  int                      socket;
-  struct AEffect          *e;
-  uint32_t                 next_tag;
-  bool                     stop;
-  struct VstTimeInfo       time_info;
-  HWND                     hwnd;
-  DWORD                    main_thread_id;
-  pthread_mutex_t          lock;
+  typedef std::list<vst_bridge_request> pending_type;
+
+  int                 socket;
+  struct AEffect     *e;
+  uint32_t            next_tag;
+  bool                stop;
+  struct VstTimeInfo  time_info;
+  HWND                hwnd;
+  DWORD               main_thread_id;
+  pthread_mutex_t     lock;
+  pending_type        pending;
 };
 
 struct vst_bridge_host g_host = {
@@ -53,13 +60,25 @@ bool wait_response(struct vst_bridge_request *rq,
   ssize_t len;
 
   while (true) {
+    for (vst_bridge_host::pending_type::iterator it = g_host.pending.begin();
+         it != g_host.pending.end(); ++it) {
+      if (it->tag == tag) {
+        *rq = *it;
+        g_host.pending.erase(it);
+        return true;
+      }
+    }
     len = read(g_host.socket, rq, sizeof (*rq));
     if (len <= 0)
       return false;
     assert(len > 8);
     if (rq->tag == tag)
       return true;
-    serve_request2(rq);
+    if (rq->cmd != VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK) {
+      serve_request2(rq);
+      continue;
+    }
+    g_host.pending.push_back(*rq);
   }
 }
 
@@ -148,7 +167,7 @@ bool serve_request2(struct vst_bridge_request *rq)
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, &ptr, rq->erq.opt);
       if (rq->erq.value > sizeof (*rq) - 8 - sizeof (rq->erq))
-        LOG(" !!!!!!!!!!!!!! very big effGetChunk: %d\n", rq->erq.value);
+        CRIT(" !!!!!!!!!!!!!! very big effGetChunk: %d\n", rq->erq.value);
       memcpy(rq->erq.data, ptr, rq->erq.value);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
@@ -173,9 +192,9 @@ bool serve_request2(struct vst_bridge_request *rq)
     }
 
     default:
-      LOG("effectDispatcher unsupported: opcode: %d, index: %d,"
-              " value: %d, opt: %f\n", rq->erq.opcode, rq->erq.index,
-              rq->erq.value, rq->erq.opt);
+      CRIT("effectDispatcher unsupported: opcode: %d, index: %d,"
+           " value: %d, opt: %f\n", rq->erq.opcode, rq->erq.index,
+           rq->erq.value, rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
     }
@@ -204,7 +223,8 @@ bool serve_request2(struct vst_bridge_request *rq)
       outputs[i] = rq2.frames.frames + i * rq->frames.nframes;
 
     g_host.e->processReplacing(g_host.e, inputs, outputs, rq->frames.nframes);
-    write(g_host.socket, &rq2, sizeof (rq2));
+    write(g_host.socket, &rq2,
+          VST_BRIDGE_FRAMES_LEN(g_host.e->numOutputs * rq->framesd.nframes));
     return true;
   }
 
@@ -223,17 +243,18 @@ bool serve_request2(struct vst_bridge_request *rq)
       outputs[i] = rq2.framesd.frames + i * rq->framesd.nframes;
 
     g_host.e->processDoubleReplacing(g_host.e, inputs, outputs, rq->framesd.nframes);
-    write(g_host.socket, &rq2, sizeof (rq2));
+    write(g_host.socket, &rq2,
+          VST_BRIDGE_FRAMES_DOUBLE_LEN(g_host.e->numOutputs * rq->framesd.nframes));
     return true;
   }
 
   case VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK:
-    LOG("  !!!!!!!!!!! UNEXPECTED AMC: tag: %d, opcode: %d\n",
+    CRIT("  !!!!!!!!!!! UNEXPECTED AMC: tag: %d, opcode: %d\n",
         rq->tag, rq->amrq.opcode);
     return true;
 
   default:
-    LOG("  !!!!!!!!!!! UNEXPECTED CMD: tag: %d, cmd: %d\n", rq->tag, rq->cmd);
+    CRIT("  !!!!!!!!!!! UNEXPECTED CMD: tag: %d, cmd: %d\n", rq->tag, rq->cmd);
     return true;
   }
 }
@@ -287,16 +308,28 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   switch (opcode) {
     /* basic forward */
   case audioMasterAutomate:
+  case audioMasterGetCurrentProcessLevel:
+  case audioMasterGetSampleRate:
+    rq.tag           = g_host.next_tag;
+    rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
+    rq.amrq.opcode   = opcode;
+    rq.amrq.index    = index;
+    rq.amrq.value    = value;
+    rq.amrq.opt      = opt;
+    g_host.next_tag += 2;
+
+    write(g_host.socket, &rq, VST_BRIDGE_AMRQ_LEN(0));
+    wait_response(&rq, rq.tag);
+    return rq.amrq.value;
+
   case audioMasterVersion:
   case audioMasterCurrentId:
   case audioMasterIdle:
   case audioMasterIOChanged:
   case audioMasterSizeWindow:
-  case audioMasterGetSampleRate:
   case audioMasterGetBlockSize:
   case audioMasterGetInputLatency:
   case audioMasterGetOutputLatency:
-  case audioMasterGetCurrentProcessLevel:
   case audioMasterGetAutomationState:
   case __audioMasterWantMidiDeprecated:
   case  __audioMasterTempoAtDeprecated:
@@ -334,13 +367,12 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
       me = (struct vst_bridge_midi_event *)(me->data + me->byteSize);
     }
 
-    write(g_host.socket, &rq, sizeof (rq));
+    write(g_host.socket, &rq, ((uint8_t*)me) - ((uint8_t*)&rq));
     wait_response(&rq, rq.tag);
     return rq.amrq.value;
   }
 
   case audioMasterGetTime:
-    return 0;
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;
@@ -354,7 +386,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     if (!rq.amrq.value)
       return 0;
     memcpy(&g_host.time_info, rq.amrq.data, sizeof (g_host.time_info));
-    return (VstIntPtr)&g_host.time_info;
+    return VstIntPtr(&g_host.time_info);
 
   case audioMasterGetProductString:
     rq.tag           = g_host.next_tag;
@@ -403,8 +435,9 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
   pthread_sigmask(SIG_BLOCK, &_signals, 0);
 
   pthread_mutex_lock(&g_host.lock);
-  int ret = host_audio_master2(effect, opcode, index, value, ptr, opt);
+  VstIntPtr ret = host_audio_master2(effect, opcode, index, value, ptr, opt);
   pthread_mutex_unlock(&g_host.lock);
+  LOG("  => audio master finished\n");
 
   pthread_sigmask(SIG_UNBLOCK, &_signals, 0);
   return ret;
@@ -452,7 +485,7 @@ int main(int argc, char **argv)
   }
 
   // check the channel
-  g_host.socket = strtol(argv[2], NULL, 10);
+  g_host.socket = atoi(argv[2]);
   {
     struct vst_bridge_request rq;
     read(g_host.socket, &rq, sizeof (rq));

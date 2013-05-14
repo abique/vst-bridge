@@ -4,7 +4,7 @@ TARGET = vst-bridge-maker
 SRC = maker.c
 
 $(TARGET): $(SRC) ../common/common.h ../config.h
-	$(CC) $(CFLAGS) $(SRC) -o $@
+	$(CC) $(CFLAGS) $(SRC) -lmagic -o $@
 
 install: $(TARGET)
 	install -m 755 -d $(DESTDIR)$(PREFIX)/bin
