@@ -405,7 +405,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     if (!chunk)
       return 0;
     vbe->chunk = chunk;
-    for (size_t off = 0;; ) {
+    for (size_t off = 0; rq.erq.value > 0; ) {
       size_t can_read = MIN(VST_BRIDGE_CHUNK_SIZE, rq.erq.value - off);
       memcpy(vbe->chunk + off, rq.erq.data, can_read);
       off += can_read;
@@ -427,11 +427,12 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     rq.erq.opt     = opt;
     vbe->next_tag += 2;
 
-    if (value > sizeof (rq) - sizeof (rq.erq) - 8)
-      CRIT(" !!!!!!!!!!! big SetChunk: %d\n", value);
-    assert(value < sizeof (rq) - sizeof (rq.erq) - 8);
-    memcpy(rq.erq.data, ptr, value);
-    write(vbe->socket, &rq, sizeof (rq));
+    for (size_t off = 0; off < value; ) {
+      size_t can_write = MIN(VST_BRIDGE_CHUNK_SIZE, value - off);
+      memcpy(rq.erq.data, ptr + off, can_write);
+      write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(can_write));
+      off += can_write;
+    }
     vst_bridge_wait_response(vbe, &rq, rq.tag);
     return rq.erq.value;
   }

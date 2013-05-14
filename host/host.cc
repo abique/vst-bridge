@@ -123,7 +123,6 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effEditKeyUp:
     case effEditKeyDown:
     case effSetEditKnobMode:
-    case effSetChunk:
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
@@ -172,6 +171,29 @@ bool serve_request2(struct vst_bridge_request *rq)
         off += can_write;
         write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(can_write));
       }
+      return true;
+    }
+
+    case effSetChunk: {
+      void *data = malloc(rq->erq.value);
+      if (!data && rq->erq.value > 0) {
+        write(g_host.socket, rq, sizeof (*rq));
+        return true;
+      }
+
+      for (size_t off = 0; off < rq->erq.value; ) {
+        size_t can_read = MIN(VST_BRIDGE_CHUNK_SIZE, rq->erq.value - off);
+        memcpy(data + off, rq->erq.data, can_read);
+        off += can_read;
+        if (off == rq->erq.value)
+          break;
+        if (!wait_response(rq, rq->tag))
+          return 0;
+      }
+      rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
+                                           rq->erq.value, data, rq->erq.opt);
+      write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
+      free(data);
       return true;
     }
 
