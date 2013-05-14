@@ -8,6 +8,8 @@
 
 # include "../config.h"
 
+# define MIN(A, B) ((A) < (B) ? (A) : (B))
+
 # define VST_BRIDGE_TPL_MAGIC "VST-BRIDGE-TPL-PATH"
 # define VST_BRIDGE_TPL_PATH INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-plugin-tpl.so"
 # define VST_BRIDGE_HOST32_PATH INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-host-32.exe"
@@ -102,6 +104,7 @@ struct vst_bridge_request_list {
   struct vst_bridge_request_list *next;
 };
 
+#define VST_BRIDGE_CHUNK_SIZE (96 * 1024)
 #define VST_BRIDGE_ERQ_LEN(X) ((X) + 8 + sizeof (struct vst_bridge_effect_request))
 #define VST_BRIDGE_AMRQ_LEN(X) ((X) + 8 + sizeof (struct vst_bridge_audio_master_request))
 #define VST_BRIDGE_FRAMES_LEN(X) ((X) * sizeof (float) + 8 + sizeof (struct vst_bridge_frames))

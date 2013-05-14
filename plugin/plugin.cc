@@ -405,7 +405,15 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     if (!chunk)
       return 0;
     vbe->chunk = chunk;
-    memcpy(vbe->chunk, rq.erq.data, rq.erq.value);
+    for (size_t off = 0;; ) {
+      size_t can_read = MIN(VST_BRIDGE_CHUNK_SIZE, rq.erq.value - off);
+      memcpy(vbe->chunk + off, rq.erq.data, can_read);
+      off += can_read;
+      if (off == rq.erq.value)
+        break;
+      if (!vst_bridge_wait_response(vbe, &rq, rq.tag))
+        return 0;
+    }
     *((void **)ptr) = chunk;
     return rq.erq.value;
   }
