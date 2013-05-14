@@ -55,7 +55,6 @@ The communication is done through socket(AF_UNIX, SOCK_SEQPACKET, 0).
 = Roadmap =
 
  - optimize I/O (reduce the number of bytes transfered)
- - improve effSetGetChunk with large chunks
  - make a scanner
 
 = Extra info =
