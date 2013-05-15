@@ -5,8 +5,8 @@ CPPFLAGS="$CPPFLAGS -D_GNU_SOURCE"
 CFLAGS="$CFLAGS -W -Wall -Wstrict-prototypes -pipe"
 CFLAGS="$CFLAGS -Wfloat-equal -Wundef -Wshadow -Wpointer-arith"
 CFLAGS="$CFLAGS -Wmissing-declarations -Wnested-externs"
-CFLAGS="$CFLAGS -Wmissing-prototypes -fPIC"
-CXXFLAGS="$CXXFLAGS -W -Wall -pipe -Wundef -Wshadow -Wpointer-arith -Wabi -std=c++11 -fPIC"
+CFLAGS="$CFLAGS -Wmissing-prototypes"
+CXXFLAGS="$CXXFLAGS -W -Wall -pipe -Wundef -Wshadow -Wpointer-arith -Wabi -std=c++11"
 LDFLAGS="$LDFLAGS"
 
 if [[ -z "$CC" ]]; then
@@ -18,11 +18,11 @@ if [[ -z "$CXX" ]]; then
 fi
 
 if [[ -z "$WINCC" ]]; then
-    WINCC=i486-mingw32-gcc
+    WINCC=winegcc
 fi
 
 if [[ -z "$WINCXX" ]]; then
-    WINCXX=i486-mingw32-g++
+    WINCXX=wineg++
 fi
 
 if [[ -z "$PREFIX" ]]; then
