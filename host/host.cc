@@ -119,13 +119,18 @@ bool serve_request2(struct vst_bridge_request *rq)
     case __effConnectOutputDeprecated:
     case __effConnectInputDeprecated:
     case effEditClose:
-    case effEditIdle:
     case effEditKeyUp:
     case effEditKeyDown:
     case effSetEditKnobMode:
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
+      return true;
+
+      // no response
+    case effEditIdle:
+      g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
+                           rq->erq.value, rq->erq.data, rq->erq.opt);
       return true;
 
     case effEditOpen: {
@@ -229,7 +234,7 @@ bool serve_request2(struct vst_bridge_request *rq)
 
   case VST_BRIDGE_CMD_GET_PARAMETER:
     rq->param.value = g_host.e->getParameter(g_host.e, rq->param.index);
-    write(g_host.socket, rq, sizeof (*rq));
+    write(g_host.socket, rq, VST_BRIDGE_PARAM_LEN);
     return true;
 
   case VST_BRIDGE_CMD_PROCESS: {
@@ -330,10 +335,20 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
       pthread_self(), opcode, index, value, ptr, opt, g_host.next_tag);
 
   switch (opcode) {
-    /* basic forward */
+    // no additional data
   case audioMasterAutomate:
-  case audioMasterGetCurrentProcessLevel:
+  case audioMasterVersion:
+  case audioMasterCurrentId:
+  case audioMasterIdle:
+  case __audioMasterPinConnectedDeprecated:
+  case audioMasterIOChanged:
+  case audioMasterSizeWindow:
   case audioMasterGetSampleRate:
+  case audioMasterGetBlockSize:
+  case audioMasterGetInputLatency:
+  case audioMasterGetOutputLatency:
+  case audioMasterGetCurrentProcessLevel:
+  case audioMasterGetAutomationState:
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;
@@ -346,17 +361,20 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     wait_response(&rq, rq.tag);
     return rq.amrq.value;
 
-  case audioMasterVersion:
-  case audioMasterCurrentId:
-  case audioMasterIdle:
-  case audioMasterIOChanged:
-  case audioMasterSizeWindow:
-  case audioMasterGetBlockSize:
-  case audioMasterGetInputLatency:
-  case audioMasterGetOutputLatency:
-  case audioMasterGetAutomationState:
+    // no response
   case __audioMasterWantMidiDeprecated:
-  case  __audioMasterTempoAtDeprecated:
+    rq.tag           = g_host.next_tag;
+    rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
+    rq.amrq.opcode   = opcode;
+    rq.amrq.index    = index;
+    rq.amrq.value    = value;
+    rq.amrq.opt      = opt;
+    g_host.next_tag += 2;
+
+    write(g_host.socket, &rq, VST_BRIDGE_AMRQ_LEN(0));
+    return rq.amrq.value;
+
+  case __audioMasterTempoAtDeprecated:
   case audioMasterUpdateDisplay:
   case audioMasterBeginEdit:
   case audioMasterEndEdit:
@@ -405,7 +423,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     rq.amrq.opt      = opt;
     g_host.next_tag += 2;
 
-    write(g_host.socket, &rq, sizeof (rq));
+    write(g_host.socket, &rq, VST_BRIDGE_AMRQ_LEN(0));
     wait_response(&rq, rq.tag);
     if (!rq.amrq.value)
       return 0;

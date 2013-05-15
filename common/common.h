@@ -107,6 +107,7 @@ struct vst_bridge_request_list {
 #define VST_BRIDGE_CHUNK_SIZE (96 * 1024)
 #define VST_BRIDGE_ERQ_LEN(X) ((X) + 8 + sizeof (struct vst_bridge_effect_request))
 #define VST_BRIDGE_AMRQ_LEN(X) ((X) + 8 + sizeof (struct vst_bridge_audio_master_request))
+#define VST_BRIDGE_PARAM_LEN (8 + sizeof (struct vst_bridge_effect_parameter))
 #define VST_BRIDGE_FRAMES_LEN(X) ((X) * sizeof (float) + 8 + sizeof (struct vst_bridge_frames))
 #define VST_BRIDGE_FRAMES_DOUBLE_LEN(X) ((X) * sizeof (double) + 8 + sizeof (struct vst_bridge_frames_double))
 

@@ -19,7 +19,7 @@
 const char g_plugin_path[PATH_MAX] = VST_BRIDGE_TPL_MAGIC;
 const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
 
-#if 0
+#if 1
 # define LOG(Args...) fprintf(stderr, Args)
 #else
 # define LOG(Args...) do { ; } while (0)
@@ -46,24 +46,31 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
                                     struct vst_bridge_request *rq)
 {
   switch (rq->amrq.opcode) {
+    // no additional data
   case audioMasterAutomate:
-  case audioMasterGetCurrentProcessLevel:
+  case audioMasterVersion:
+  case audioMasterCurrentId:
+  case audioMasterIdle:
+  case __audioMasterPinConnectedDeprecated:
+  case audioMasterIOChanged:
+  case audioMasterSizeWindow:
   case audioMasterGetSampleRate:
+  case audioMasterGetBlockSize:
+  case audioMasterGetInputLatency:
+  case audioMasterGetOutputLatency:
+  case audioMasterGetCurrentProcessLevel:
+  case audioMasterGetAutomationState:
     rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
                                        rq->amrq.value, rq->amrq.data, rq->amrq.opt);
     write(vbe->socket, rq, VST_BRIDGE_AMRQ_LEN(0));
     break;
 
-  case audioMasterVersion:
-  case audioMasterCurrentId:
-  case audioMasterIdle:
-  case audioMasterIOChanged:
-  case audioMasterSizeWindow:
-  case audioMasterGetBlockSize:
-  case audioMasterGetInputLatency:
-  case audioMasterGetOutputLatency:
-  case audioMasterGetAutomationState:
+    // no response
   case __audioMasterWantMidiDeprecated:
+    rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
+                                       rq->amrq.value, rq->amrq.data, rq->amrq.opt);
+    break;
+
   case audioMasterGetProductString:
   case __audioMasterTempoAtDeprecated:
   case audioMasterUpdateDisplay:
@@ -132,10 +139,14 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
       return true;
     }
 
+    LOG("     <=== Waiting for tag %d\n", tag);
+
     len = ::read(vbe->socket, rq, sizeof (*rq));
     if (len <= 0)
       return false;
     assert(len > 8);
+
+    LOG("     ===> Got tag %d\n", rq->tag);
 
     if (rq->tag == tag)
       return true;
@@ -223,12 +234,9 @@ float vst_bridge_call_get_parameter(AEffect* effect,
   rq.cmd         = VST_BRIDGE_CMD_GET_PARAMETER;
   rq.param.index = index;
   vbe->next_tag += 2;
-
-  write(vbe->socket, &rq, sizeof (rq));
+  write(vbe->socket, &rq, VST_BRIDGE_PARAM_LEN);
   vst_bridge_wait_response(vbe, &rq, rq.tag);
-
   pthread_mutex_unlock(&vbe->lock);
-
   return rq.param.value;
 }
 
@@ -240,15 +248,12 @@ void vst_bridge_call_set_parameter(AEffect* effect,
   struct vst_bridge_request rq;
 
   pthread_mutex_lock(&vbe->lock);
-
   rq.tag         = vbe->next_tag;
   rq.cmd         = VST_BRIDGE_CMD_SET_PARAMETER;
   rq.param.index = index;
   rq.param.value = parameter;
   vbe->next_tag += 2;
-
-  write(vbe->socket, &rq, sizeof (rq));
-
+  write(vbe->socket, &rq, VST_BRIDGE_PARAM_LEN);
   pthread_mutex_unlock(&vbe->lock);
 }
 
@@ -286,7 +291,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   case __effConnectOutputDeprecated:
   case __effConnectInputDeprecated:
   case effSetEditKnobMode:
-  case effEditIdle:
   case effEditClose:
   case effEditKeyUp:
   case effEditKeyDown:
@@ -300,6 +304,19 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
 
     write(vbe->socket, &rq, sizeof (rq));
     vst_bridge_wait_response(vbe, &rq, rq.tag);
+    return rq.amrq.value;
+
+    // no response
+  case effEditIdle:
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
+
+    write(vbe->socket, &rq, sizeof (rq));
     return rq.amrq.value;
 
   case effEditOpen: {
