@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <limits.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -19,7 +20,7 @@
 const char g_plugin_path[PATH_MAX] = VST_BRIDGE_TPL_MAGIC;
 const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
 
-#if 1
+#if 0
 # define LOG(Args...) fprintf(stderr, Args)
 #else
 # define LOG(Args...) do { ; } while (0)
@@ -38,6 +39,7 @@ struct vst_bridge_effect {
   void                           *chunk;
   pthread_mutex_t                 lock;
   ERect                           rect;
+  bool                            close_flag;
 
   struct vst_bridge_request_list *pending;
 };
@@ -273,7 +275,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
 
   switch (opcode) {
   case effOpen:
-  case effClose:
   case effSetProgram:
   case effGetProgram:
   case effGetOutputProperties:
@@ -304,6 +305,20 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
 
     write(vbe->socket, &rq, sizeof (rq));
     vst_bridge_wait_response(vbe, &rq, rq.tag);
+    return rq.amrq.value;
+
+  case effClose:
+    // quit
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
+
+    write(vbe->socket, &rq, sizeof (rq));
+    vbe->close_flag = true;
     return rq.amrq.value;
 
     // no response
@@ -519,6 +534,18 @@ VstIntPtr vst_bridge_call_effect_dispatcher(AEffect*  effect,
     effect, opcode, index, value, ptr, opt);
   pthread_mutex_unlock(&vbe->lock);
 
+  if (!vbe->close_flag)
+    return ret;
+
+  int st;
+
+  close(vbe->socket);
+  vbe->socket = -1;
+  free(vbe->chunk);
+  vbe->chunk = NULL;
+  pthread_mutex_destroy(&vbe->lock);
+  waitpid(vbe->child, &st, 0);
+  free(vbe);
   return ret;
 }
 
@@ -599,6 +626,7 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   vbe->e.processReplacing       = vst_bridge_call_process;
   vbe->e.processDoubleReplacing = vst_bridge_call_process_double;
   vbe->pending                  = NULL;
+  vbe->close_flag               = false;
 
   // initialize sockets
   if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, fds))
