@@ -11,4 +11,4 @@ install: $(TARGET)
 	install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/bin
 
 clean:
-	rm $(TARGET)
+	rm -f $(TARGET)
