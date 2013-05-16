@@ -27,7 +27,7 @@
 #define VST_BRIDGE_WMSG_IO 19041
 #define VST_BRIDGE_WMSG_EDIT_OPEN 19042
 
-#if 1
+#if 0
 # define LOG(Args...) fprintf(stderr, Args)
 #else
 # define LOG(Args...)
