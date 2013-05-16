@@ -644,7 +644,7 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
     close(fds[0]);
     snprintf(buff, sizeof (buff), "%d", fds[1]);
     execl("/bin/sh", "/bin/sh", g_host_path, g_plugin_path, buff, NULL);
-    assert(false);
+    CRIT("Failed to spawn child process: /bin/sh %s %s %s\n", g_host_path, g_plugin_path, buff);
     exit(1);
   }
 
