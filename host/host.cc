@@ -27,7 +27,7 @@
 #define VST_BRIDGE_WMSG_IO 19041
 #define VST_BRIDGE_WMSG_EDIT_OPEN 19042
 
-#if 0
+#if 1
 # define LOG(Args...) fprintf(stderr, Args)
 #else
 # define LOG(Args...)
@@ -96,8 +96,11 @@ bool serve_request2(struct vst_bridge_request *rq)
   switch (rq->cmd) {
   case VST_BRIDGE_CMD_EFFECT_DISPATCHER:
     switch (rq->erq.opcode) {
-    case effOpen:
     case effSetProgram:
+    case effSetSampleRate:
+    case effSetBlockSize:
+    case effEditIdle:
+    case effOpen:
     case effGetProgram:
     case effSetProgramName:
     case effGetProgramName:
@@ -110,8 +113,6 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effGetVendorString:
     case effGetProductString:
     case effCanDo:
-    case effSetSampleRate:
-    case effSetBlockSize:
     case effMainsChanged:
     case effGetParamLabel:
     case effGetParamDisplay:
@@ -137,12 +138,6 @@ bool serve_request2(struct vst_bridge_request *rq)
       g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                            rq->erq.value, rq->erq.data, rq->erq.opt);
       exit(0);
-      return true;
-
-      // no response
-    case effEditIdle:
-      g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
-                           rq->erq.value, rq->erq.data, rq->erq.opt);
       return true;
 
     case effEditOpen: {
@@ -361,19 +356,6 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   case audioMasterGetOutputLatency:
   case audioMasterGetCurrentProcessLevel:
   case audioMasterGetAutomationState:
-    rq.tag           = g_host.next_tag;
-    rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
-    rq.amrq.opcode   = opcode;
-    rq.amrq.index    = index;
-    rq.amrq.value    = value;
-    rq.amrq.opt      = opt;
-    g_host.next_tag += 2;
-
-    write(g_host.socket, &rq, VST_BRIDGE_AMRQ_LEN(0));
-    wait_response(&rq, rq.tag);
-    return rq.amrq.value;
-
-    // no response
   case __audioMasterWantMidiDeprecated:
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
@@ -384,6 +366,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     g_host.next_tag += 2;
 
     write(g_host.socket, &rq, VST_BRIDGE_AMRQ_LEN(0));
+    wait_response(&rq, rq.tag);
     return rq.amrq.value;
 
   case __audioMasterTempoAtDeprecated:
@@ -617,6 +600,8 @@ int main(int argc, char **argv)
   //   dprintf(g_host.logfd, "failed to create audio thread: %m\n");
   //   return 1;
   // }
+
+  sleep(1);
 
   struct pollfd pfd;
   MSG msg;

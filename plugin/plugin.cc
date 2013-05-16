@@ -33,6 +33,29 @@ const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
 #include <vst2.x/aeffectx.h>
 
 struct vst_bridge_effect {
+  vst_bridge_effect()
+    : socket(-1),
+      child(-1),
+      next_tag(0),
+      chunk(NULL)
+  {
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&lock, &attr);
+    pthread_mutexattr_destroy(&attr);
+  }
+
+  ~vst_bridge_effect()
+  {
+    if (socket >= 0)
+      close(socket);
+    free(chunk);
+    pthread_mutex_destroy(&lock);
+    int st;
+    waitpid(child, &st, 0);
+  }
+
   struct AEffect                 e;
   int                            socket;
   pid_t                          child;
@@ -63,15 +86,10 @@ void vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
   case audioMasterGetOutputLatency:
   case audioMasterGetCurrentProcessLevel:
   case audioMasterGetAutomationState:
-    rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
-                                       rq->amrq.value, rq->amrq.data, rq->amrq.opt);
-    write(vbe->socket, rq, VST_BRIDGE_AMRQ_LEN(0));
-    break;
-
-    // no response
   case __audioMasterWantMidiDeprecated:
     rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
                                        rq->amrq.value, rq->amrq.data, rq->amrq.opt);
+    write(vbe->socket, rq, VST_BRIDGE_AMRQ_LEN(0));
     break;
 
   case audioMasterGetProductString:
@@ -135,7 +153,7 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
     for (it = vbe->pending.begin(); it != vbe->pending.end(); ++it) {
       if (it->tag != tag)
         continue;
-      memcpy(rq, &*it, sizeof (*rq));
+      *rq = *it;
       vbe->pending.erase(it);
       return true;
     }
@@ -158,7 +176,7 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
       continue;
     }
 
-    vbe->pending.push_back(*it);
+    vbe->pending.push_back(*rq);
   }
 }
 
@@ -269,16 +287,29 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
       pthread_self(), opcode, index, value, ptr, opt, vbe->next_tag);
 
   switch (opcode) {
-  case effOpen:
+  case effSetBlockSize:
   case effSetProgram:
+  case effSetSampleRate:
+  case effEditIdle:
   case effGetProgram:
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
+
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
+    vst_bridge_wait_response(vbe, &rq, rq.tag);
+    return rq.amrq.value;
+
+  case effOpen:
   case effGetOutputProperties:
   case effGetInputProperties:
   case effGetPlugCategory:
   case effGetVstVersion:
   case effGetVendorVersion:
-  case effSetSampleRate:
-  case effSetBlockSize:
   case effMainsChanged:
   case effBeginSetProgram:
   case effEndSetProgram:
@@ -314,20 +345,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
 
     write(vbe->socket, &rq, sizeof (rq));
     vbe->close_flag = true;
-    return rq.amrq.value;
-
-    // no response
-  case effEditIdle:
-    rq.tag         = vbe->next_tag;
-    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
-    rq.erq.opcode  = opcode;
-    rq.erq.index   = index;
-    rq.erq.value   = value;
-    rq.erq.opt     = opt;
-    vbe->next_tag += 2;
-
-    write(vbe->socket, &rq, sizeof (rq));
-    return rq.amrq.value;
+    return 0;
 
   case effEditOpen: {
     // Display *display = (Display *)value;
@@ -532,15 +550,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher(AEffect*  effect,
   if (!vbe->close_flag)
     return ret;
 
-  int st;
-
-  close(vbe->socket);
-  vbe->socket = -1;
-  free(vbe->chunk);
-  vbe->chunk = NULL;
-  pthread_mutex_destroy(&vbe->lock);
-  waitpid(vbe->child, &st, 0);
-  free(vbe);
+  delete vbe;
   return ret;
 }
 
@@ -601,17 +611,11 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   int fds[2];
 
   // allocate the context
-  vbe = (struct vst_bridge_effect *)calloc(sizeof (*vbe), 1);
+  vbe = new vst_bridge_effect;
   if (!vbe)
     goto failed;
 
-  {
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&vbe->lock, &attr);
-    pthread_mutexattr_destroy(&attr);
-  }
+  // XXX move to the class description
   vbe->audio_master             = audio_master;
   vbe->e.user                   = vbe;
   vbe->e.magic                  = kEffectMagic;
