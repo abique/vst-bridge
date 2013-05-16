@@ -12,6 +12,12 @@
 
 #include <windows.h>
 
+#ifdef _WIN64
+# ifndef __LP64__
+#  define __LP64__
+# endif
+#endif
+
 #include </usr/include/vst2.x/aeffectx.h>
 
 #include "../common/common.h"
