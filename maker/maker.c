@@ -18,6 +18,7 @@ int main(int argc, char **argv)
 {
   int arch = 32;
   magic_t magic;
+  char dll_real_path[PATH_MAX];
 
   if (argc != 3) {
     fprintf(stderr, "usage: %s <vst.dll> <vst.so>\n", argv[0]);
@@ -25,7 +26,8 @@ int main(int argc, char **argv)
   }
 
   struct stat st_dll;
-  if (stat(argv[1], &st_dll)) {
+  if (stat(argv[1], &st_dll) ||
+      !realpath(argv[1], dll_real_path)) {
     fprintf(stderr, "%s: %m\n", argv[1]);
     return 1;
   }
@@ -41,9 +43,9 @@ int main(int argc, char **argv)
     fprintf(stderr, "failed to initialize magic\n");
   else {
     magic_load(magic, NULL);
-    if (strstr(magic_file(magic, argv[1]), "80386"))
+    if (strstr(magic_file(magic, dll_real_path), "80386"))
       arch = 32;
-    else if (strstr(magic_file(magic, argv[1]), "x86-64"))
+    else if (strstr(magic_file(magic, dll_real_path), "x86-64"))
       arch = 64;
     printf("detected %d bits dll\n", arch);
     magic_close(magic);
@@ -85,7 +87,7 @@ int main(int argc, char **argv)
     fprintf(stderr, "template magic not found in plugin\n");
     return 1;
   }
-  strncpy(dll_path, argv[1], PATH_MAX);
+  strncpy(dll_path, dll_real_path, PATH_MAX);
 
   void *host_path = memmem(mem_so, st_tpl.st_size, VST_BRIDGE_HOST32_PATH,
                            sizeof (VST_BRIDGE_HOST32_PATH));
