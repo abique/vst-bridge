@@ -99,11 +99,6 @@ struct vst_bridge_request {
   };
 } __attribute__((packed));
 
-struct vst_bridge_request_list {
-  struct vst_bridge_request rq;
-  struct vst_bridge_request_list *next;
-};
-
 #define VST_BRIDGE_CHUNK_SIZE (96 * 1024)
 #define VST_BRIDGE_ERQ_LEN(X) ((X) + 8 + sizeof (struct vst_bridge_effect_request))
 #define VST_BRIDGE_AMRQ_LEN(X) ((X) + 8 + sizeof (struct vst_bridge_audio_master_request))

@@ -10,6 +10,8 @@
 #include <pthread.h>
 #include <signal.h>
 
+#include <list>
+
 #include <X11/Xlib.h>
 
 #define __cdecl
@@ -31,20 +33,19 @@ const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
 #include <vst2.x/aeffectx.h>
 
 struct vst_bridge_effect {
-  struct AEffect                  e;
-  int                             socket;
-  pid_t                           child;
-  uint32_t                        next_tag;
-  audioMasterCallback             audio_master;
-  void                           *chunk;
-  pthread_mutex_t                 lock;
-  ERect                           rect;
-  bool                            close_flag;
-
-  struct vst_bridge_request_list *pending;
+  struct AEffect                 e;
+  int                            socket;
+  pid_t                          child;
+  uint32_t                       next_tag;
+  audioMasterCallback            audio_master;
+  void                          *chunk;
+  pthread_mutex_t                lock;
+  ERect                          rect;
+  bool                           close_flag;
+  std::list<vst_bridge_request>  pending;
 };
 
-bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
+void vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
                                     struct vst_bridge_request *rq)
 {
   switch (rq->amrq.opcode) {
@@ -89,7 +90,7 @@ bool vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
     ves->numEvents = mes->nb;
     ves->reserved  = 0;
     struct vst_bridge_midi_event *me = mes->events;
-    for (int i = 0; i < mes->nb; ++i) {
+    for (size_t i = 0; i < mes->nb; ++i) {
       ves->events[i] = (VstEvent*)me;
       me = (struct vst_bridge_midi_event *)(me->data + me->byteSize);
     }
@@ -130,14 +131,12 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
   ssize_t len;
 
   while (true) {
-    struct vst_bridge_request_list **it;
-    for (it = &vbe->pending; (*it); it = &(*it)->next) {
-      if ((*it)->rq.tag != tag)
+    std::list<vst_bridge_request>::iterator it;
+    for (it = vbe->pending.begin(); it != vbe->pending.end(); ++it) {
+      if (it->tag != tag)
         continue;
-      memcpy(rq, &(*it)->rq, sizeof (*rq));
-      struct vst_bridge_request_list *tmp = *it;
-      *it = tmp->next;
-      free(tmp);
+      memcpy(rq, &*it, sizeof (*rq));
+      vbe->pending.erase(it);
       return true;
     }
 
@@ -159,11 +158,7 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
       continue;
     }
 
-    // queue
-    struct vst_bridge_request_list *next = (struct vst_bridge_request_list *)malloc(sizeof (*next));
-    next->next = vbe->pending;
-    vbe->pending = next;
-    memcpy(&next->rq, rq, sizeof (rq));
+    vbe->pending.push_back(*it);
   }
 }
 
@@ -625,7 +620,6 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   vbe->e.getParameter           = vst_bridge_call_get_parameter;
   vbe->e.processReplacing       = vst_bridge_call_process;
   vbe->e.processDoubleReplacing = vst_bridge_call_process_double;
-  vbe->pending                  = NULL;
   vbe->close_flag               = false;
 
   // initialize sockets
