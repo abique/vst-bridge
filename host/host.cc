@@ -96,6 +96,7 @@ bool serve_request2(struct vst_bridge_request *rq)
   switch (rq->cmd) {
   case VST_BRIDGE_CMD_EFFECT_DISPATCHER:
     switch (rq->erq.opcode) {
+    case __effIdleDeprecated:
     case effEditIdle:
     case effSetSampleRate:
     case effSetBlockSize:

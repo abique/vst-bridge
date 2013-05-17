@@ -299,6 +299,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   case effSetSampleRate:
   case effEditIdle:
   case effGetProgram:
+  case __effIdleDeprecated:
     rq.tag         = vbe->next_tag;
     rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
     rq.erq.opcode  = opcode;
