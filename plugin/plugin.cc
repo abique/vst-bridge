@@ -343,7 +343,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     rq.erq.opt     = opt;
     vbe->next_tag += 2;
 
-    write(vbe->socket, &rq, sizeof (rq));
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
     vbe->close_flag = true;
     return 0;
 
@@ -370,7 +370,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     rq.erq.opt     = opt;
     vbe->next_tag += 2;
 
-    write(vbe->socket, &rq, sizeof (rq));
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
     vst_bridge_wait_response(vbe, &rq, rq.tag);
     return rq.erq.value;
   }
@@ -384,7 +384,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     rq.erq.opt     = opt;
     vbe->next_tag += 2;
 
-    write(vbe->socket, &rq, sizeof (rq));
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
     vst_bridge_wait_response(vbe, &rq, rq.tag);
     memcpy(&vbe->rect, rq.erq.data, sizeof (vbe->rect));
     ERect **r = (ERect **)ptr;
@@ -397,6 +397,20 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   }
 
   case effSetProgramName:
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
+
+    strcpy((char*)rq.erq.data, (const char *)ptr);
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(strlen((const char *)ptr) + 1));
+    if (!vst_bridge_wait_response(vbe, &rq, rq.tag))
+      return 0;
+    return rq.amrq.value;
+
   case effGetProgramName:
   case effGetParamLabel:
   case effGetParamDisplay:
@@ -413,7 +427,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     rq.erq.opt     = opt;
     vbe->next_tag += 2;
 
-    write(vbe->socket, &rq, sizeof (rq));
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
     if (!vst_bridge_wait_response(vbe, &rq, rq.tag))
       return 0;
     strcpy((char*)ptr, (const char *)rq.erq.data);
@@ -491,9 +505,10 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     rq.erq.value   = value;
     rq.erq.opt     = opt;
     vbe->next_tag += 2;
-    memcpy(rq.erq.data, ptr, 8 + ar->numChannels * sizeof (ar->speakers[0]));
+    size_t len = 8 + ar->numChannels * sizeof (ar->speakers[0]);
+    memcpy(rq.erq.data, ptr, len);
 
-    write(vbe->socket, &rq, sizeof (rq));
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(len));
     if (!vst_bridge_wait_response(vbe, &rq, rq.tag))
       return 0;
     memcpy(ptr, rq.erq.data, 8 + ar->numChannels * sizeof (ar->speakers[0]));
@@ -520,7 +535,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
       me = (struct vst_bridge_midi_event *)(me->data + me->byteSize);
     }
 
-    write(vbe->socket, &rq, sizeof (rq));
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(((uint8_t *)me) - rq.erq.data));
     if (!vst_bridge_wait_response(vbe, &rq, rq.tag))
       return 0;
     return rq.amrq.value;
