@@ -366,6 +366,20 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     wait_response(&rq, rq.tag);
     return rq.amrq.value;
 
+  case audioMasterCanDo:
+    rq.tag           = g_host.next_tag;
+    rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
+    rq.amrq.opcode   = opcode;
+    rq.amrq.index    = index;
+    rq.amrq.value    = value;
+    rq.amrq.opt      = opt;
+    g_host.next_tag += 2;
+    strcpy((char*)rq.amrq.data, (char*)ptr);
+
+    write(g_host.socket, &rq, VST_BRIDGE_AMRQ_LEN(strlen((char*)ptr) + 1));
+    wait_response(&rq, rq.tag);
+    return rq.amrq.value;
+
   case __audioMasterTempoAtDeprecated:
   case audioMasterUpdateDisplay:
   case audioMasterBeginEdit:
