@@ -96,34 +96,31 @@ bool serve_request2(struct vst_bridge_request *rq)
   switch (rq->cmd) {
   case VST_BRIDGE_CMD_EFFECT_DISPATCHER:
     switch (rq->erq.opcode) {
-    case effSetProgram:
+    case effEditIdle:
     case effSetSampleRate:
     case effSetBlockSize:
-    case effEditIdle:
-    case effOpen:
+    case effSetProgram:
     case effGetProgram:
+    case effOpen:
     case effSetProgramName:
-    case effGetProgramName:
+    case __effConnectOutputDeprecated:
+    case __effConnectInputDeprecated:
+      rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
+                                           rq->erq.value, rq->erq.data, rq->erq.opt);
+      write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
+      return true;
+
     case effGetOutputProperties:
     case effGetInputProperties:
     case effGetPlugCategory:
     case effGetVstVersion:
     case effGetVendorVersion:
-    case effGetEffectName:
-    case effGetVendorString:
-    case effGetProductString:
     case effCanDo:
     case effMainsChanged:
-    case effGetParamLabel:
-    case effGetParamDisplay:
-    case effGetParamName:
     case effBeginSetProgram:
     case effEndSetProgram:
     case effStartProcess:
     case effStopProcess:
-    case effGetProgramNameIndexed:
-    case __effConnectOutputDeprecated:
-    case __effConnectInputDeprecated:
     case effEditClose:
     case effEditKeyUp:
     case effEditKeyDown:
@@ -131,6 +128,19 @@ bool serve_request2(struct vst_bridge_request *rq)
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
+      return true;
+
+    case effGetParamLabel:
+    case effGetParamDisplay:
+    case effGetParamName:
+    case effGetProgramName:
+    case effGetEffectName:
+    case effGetVendorString:
+    case effGetProductString:
+    case effGetProgramNameIndexed:
+      rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
+                                           rq->erq.value, rq->erq.data, rq->erq.opt);
+      write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(strlen((char *)rq->erq.data) + 1));
       return true;
 
     case effClose:
@@ -147,8 +157,8 @@ bool serve_request2(struct vst_bridge_request *rq)
       g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
       if (rect) {
         SetWindowPos(g_host.hwnd, 0, 0, 0,
-                     rect->right - rect->left + 15,
-                     rect->bottom - rect->top + 30,
+                     rect->right - rect->left,
+                     rect->bottom - rect->top,
                      SWP_NOACTIVATE | SWP_NOMOVE |
                      SWP_NOOWNERZORDER | SWP_NOZORDER);
       }
@@ -223,14 +233,14 @@ bool serve_request2(struct vst_bridge_request *rq)
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, ves, rq->erq.opt);
       free(ves);
-      write(g_host.socket, rq, sizeof (*rq));
+      write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
       return true;
     }
 
     default:
-      CRIT("effectDispatcher unsupported: opcode: %d, index: %d,"
-           " value: %d, opt: %f\n", rq->erq.opcode, rq->erq.index,
-           rq->erq.value, rq->erq.opt);
+      CRIT(" !!!!!!!!!! effectDispatcher unsupported: opcode: (%s, %d), index: %d,"
+           " value: %d, opt: %f\n", vst_bridge_effect_opcode_name[rq->erq.opcode],
+           rq->erq.opcode, rq->erq.index, rq->erq.value, rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
     }
@@ -308,21 +318,7 @@ bool serve_request(void)
     return false;
   }
 
-  sigset_t _signals;
-  sigemptyset(&_signals);
-  sigaddset(&_signals, SIGHUP);
-  sigaddset(&_signals, SIGINT);
-  sigaddset(&_signals, SIGQUIT);
-  sigaddset(&_signals, SIGPIPE);
-  sigaddset(&_signals, SIGTERM);
-  sigaddset(&_signals, SIGUSR1);
-  sigaddset(&_signals, SIGUSR2);
-  sigaddset(&_signals, SIGCHLD);
-  sigaddset(&_signals, SIGALRM);
-  sigaddset(&_signals, SIGURG);
-  pthread_sigmask(SIG_BLOCK, &_signals, 0);
   bool ret = serve_request2(&rq);
-  pthread_sigmask(SIG_UNBLOCK, &_signals, 0);
 
   pthread_mutex_unlock(&g_host.lock);
   return ret;
@@ -357,6 +353,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   case audioMasterGetCurrentProcessLevel:
   case audioMasterGetAutomationState:
   case __audioMasterWantMidiDeprecated:
+  case __audioMasterNeedIdleDeprecated:
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;
@@ -444,8 +441,9 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     return false;
 
   default:
-    LOG("audioMaster unsupported: opcode: %d, index: %d,"
-        " value: %d, ptr: %p, opt: %f\n", opcode, index, value, ptr, opt);
+    CRIT("  !!!!!!!!!!!!!! audioMaster unsupported: opcode: (%s, %d), index: %d,"
+         " value: %d, ptr: %p, opt: %f\n",
+         vst_bridge_audio_master_opcode_name[opcode], opcode, index, value, ptr, opt);
     return 0;
   }
 }
@@ -457,26 +455,10 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
                                         void*     ptr,
                                         float     opt)
 {
-  sigset_t _signals;
-  sigemptyset(&_signals);
-  sigaddset(&_signals, SIGHUP);
-  sigaddset(&_signals, SIGINT);
-  sigaddset(&_signals, SIGQUIT);
-  sigaddset(&_signals, SIGPIPE);
-  sigaddset(&_signals, SIGTERM);
-  sigaddset(&_signals, SIGUSR1);
-  sigaddset(&_signals, SIGUSR2);
-  sigaddset(&_signals, SIGCHLD);
-  sigaddset(&_signals, SIGALRM);
-  sigaddset(&_signals, SIGURG);
-  pthread_sigmask(SIG_BLOCK, &_signals, 0);
-
   pthread_mutex_lock(&g_host.lock);
   VstIntPtr ret = host_audio_master2(effect, opcode, index, value, ptr, opt);
   pthread_mutex_unlock(&g_host.lock);
   LOG("  => audio master finished\n");
-
-  pthread_sigmask(SIG_UNBLOCK, &_signals, 0);
   return ret;
 }
 

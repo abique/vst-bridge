@@ -71,6 +71,10 @@ struct vst_bridge_effect {
 void vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
                                     struct vst_bridge_request *rq)
 {
+  LOG("audio_master(%s, %d, %d, %f) <= tag %d\n",
+      vst_bridge_audio_master_opcode_name[rq->amrq.opcode],
+      rq->amrq.index, rq->amrq.value, rq->amrq.opt, rq->tag);
+
   switch (rq->amrq.opcode) {
     // no additional data
   case audioMasterAutomate:
@@ -87,6 +91,7 @@ void vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
   case audioMasterGetCurrentProcessLevel:
   case audioMasterGetAutomationState:
   case __audioMasterWantMidiDeprecated:
+  case __audioMasterNeedIdleDeprecated:
     rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
                                        rq->amrq.value, rq->amrq.data, rq->amrq.opt);
     write(vbe->socket, rq, VST_BRIDGE_AMRQ_LEN(0));
@@ -283,8 +288,9 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   struct vst_bridge_request rq;
   ssize_t len;
 
-  LOG("[%p] effect_dispatcher(%d, %d, %d, %p, %f) => next_tag: %d\n",
-      pthread_self(), opcode, index, value, ptr, opt, vbe->next_tag);
+  LOG("[%p] effect_dispatcher(%s, %d, %d, %p, %f) => next_tag: %d\n",
+      pthread_self(), vst_bridge_effect_opcode_name[opcode], index, value,
+      ptr, opt, vbe->next_tag);
 
   switch (opcode) {
   case effSetBlockSize:
@@ -431,6 +437,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     if (!vst_bridge_wait_response(vbe, &rq, rq.tag))
       return 0;
     strcpy((char*)ptr, (const char *)rq.erq.data);
+    LOG("Got string: %s\n", (char *)ptr);
     return rq.amrq.value;
 
   case effCanDo:
