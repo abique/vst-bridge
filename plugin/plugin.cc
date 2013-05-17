@@ -141,9 +141,9 @@ void vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
   }
 
   default:
-    LOG("audio master callback (unhandled): op: %d,"
-        " index: %d, value: %d, opt: %f\n",
-        rq->amrq.opcode, rq->amrq.index, rq->amrq.value, rq->amrq.opt);
+    CRIT("  !!!!!!! audio master callback (unhandled): op: %d,"
+         " index: %d, value: %d, opt: %f\n",
+         rq->amrq.opcode, rq->amrq.index, rq->amrq.value, rq->amrq.opt);
     break;
   }
 }
@@ -550,8 +550,9 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   }
 
   default:
-    LOG("effectDispatcher unsupported: opcode: %d, index: %d,"
-        " value: %d, ptr: %p, opt: %f\n", opcode, index, value, ptr, opt);
+    CRIT("[%p] !!!!!!!!!! UNHANDLED effect_dispatcher(%s, %d, %d, %p, %f)\n",
+         pthread_self(), vst_bridge_effect_opcode_name[opcode], index, value,
+         ptr);
     return 0;
   }
 }
