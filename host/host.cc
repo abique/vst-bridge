@@ -27,7 +27,7 @@
 #define VST_BRIDGE_WMSG_IO 19041
 #define VST_BRIDGE_WMSG_EDIT_OPEN 19042
 
-#if 0
+#if 1
 # define LOG(Args...) fprintf(stderr, Args)
 #else
 # define LOG(Args...)
@@ -44,6 +44,7 @@ struct vst_bridge_host {
   struct AEffect     *e;
   uint32_t            next_tag;
   bool                stop;
+  struct VstEvents   *ves;
   struct VstTimeInfo  time_info;
   HWND                hwnd;
   DWORD               main_thread_id;
@@ -55,7 +56,8 @@ struct vst_bridge_host g_host = {
   -1,
   NULL,
   1,
-  false
+  false,
+  NULL
 };
 
 bool serve_request2(struct vst_bridge_request *rq);
@@ -222,7 +224,9 @@ bool serve_request2(struct vst_bridge_request *rq)
 
     case effProcessEvents: {
       struct vst_bridge_midi_events *mes = (struct vst_bridge_midi_events *)rq->erq.data;
-      struct VstEvents *ves = (struct VstEvents *)malloc(sizeof (*ves) + mes->nb * sizeof (void*));
+      struct VstEvents *ves = (struct VstEvents *)realloc(
+        (void*)g_host.ves, sizeof (*ves) + mes->nb * sizeof (void*));
+      assert(ves);
       ves->numEvents = mes->nb;
       ves->reserved  = 0;
       struct vst_bridge_midi_event *me = mes->events;
@@ -233,7 +237,6 @@ bool serve_request2(struct vst_bridge_request *rq)
 
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, ves, rq->erq.opt);
-      free(ves);
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
       return true;
     }
