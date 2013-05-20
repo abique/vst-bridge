@@ -108,6 +108,17 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effSetProgramName:
     case __effConnectOutputDeprecated:
     case __effConnectInputDeprecated:
+    case effGetVstVersion:
+    case effGetPlugCategory:
+    case effEditClose:
+    case effMainsChanged:
+    case effStartProcess:
+    case effStopProcess:
+    case effSetTotalSampleToProcess:
+    case effSetPanLaw:
+    case effSetProcessPrecision:
+    case effGetNumMidiInputChannels:
+    case effGetNumMidiOutputChannels:
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
@@ -115,16 +126,10 @@ bool serve_request2(struct vst_bridge_request *rq)
 
     case effGetOutputProperties:
     case effGetInputProperties:
-    case effGetPlugCategory:
-    case effGetVstVersion:
     case effGetVendorVersion:
     case effCanDo:
-    case effMainsChanged:
     case effBeginSetProgram:
     case effEndSetProgram:
-    case effStartProcess:
-    case effStopProcess:
-    case effEditClose:
     case effEditKeyUp:
     case effEditKeyDown:
     case effSetEditKnobMode:

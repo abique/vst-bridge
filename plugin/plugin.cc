@@ -300,6 +300,14 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   case effEditIdle:
   case effGetProgram:
   case __effIdleDeprecated:
+  case effSetTotalSampleToProcess:
+  case effStartProcess:
+  case effStopProcess:
+  case effSetPanLaw:
+  case effSetProcessPrecision:
+  case effGetNumMidiInputChannels:
+  case effGetNumMidiOutputChannels:
+  case effEditClose:
     rq.tag         = vbe->next_tag;
     rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
     rq.erq.opcode  = opcode;
@@ -321,12 +329,9 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   case effMainsChanged:
   case effBeginSetProgram:
   case effEndSetProgram:
-  case effStartProcess:
-  case effStopProcess:
   case __effConnectOutputDeprecated:
   case __effConnectInputDeprecated:
   case effSetEditKnobMode:
-  case effEditClose:
   case effEditKeyUp:
   case effEditKeyDown:
     rq.tag         = vbe->next_tag;
