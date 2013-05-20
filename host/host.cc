@@ -238,6 +238,16 @@ bool serve_request2(struct vst_bridge_request *rq)
       return true;
     }
 
+    case effVendorSpecific:
+      switch (rq->erq.index) {
+      case effGetParamDisplay:
+        rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
+                                             rq->erq.value, rq->erq.data, rq->erq.opt);
+        write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(strlen((const char *)rq->erq.data) + 1));
+        return true;
+      }
+      return true;
+
     default:
       CRIT(" !!!!!!!!!! effectDispatcher unsupported: opcode: (%s, %d), index: %d,"
            " value: %d, opt: %f\n", vst_bridge_effect_opcode_name[rq->erq.opcode],
