@@ -68,6 +68,27 @@ struct vst_bridge_effect {
   std::list<vst_bridge_request>  pending;
 };
 
+void copy_plugin_data(struct vst_bridge_effect *vbe,
+                      struct vst_bridge_request *rq)
+{
+  vbe->e.numPrograms  = rq->plugin_data.numPrograms;
+  vbe->e.numParams    = rq->plugin_data.numParams;
+  vbe->e.numInputs    = rq->plugin_data.numInputs;
+  vbe->e.numOutputs   = rq->plugin_data.numOutputs;
+  vbe->e.flags        = rq->plugin_data.flags;
+  vbe->e.initialDelay = rq->plugin_data.initialDelay;
+  vbe->e.uniqueID     = rq->plugin_data.uniqueID;
+  vbe->e.version      = rq->plugin_data.version;
+  if (!rq->plugin_data.hasSetParameter)
+    vbe->e.setParameter = NULL;
+  if (!rq->plugin_data.hasGetParameter)
+    vbe->e.getParameter = NULL;
+  if (!rq->plugin_data.hasProcessReplacing)
+    vbe->e.processReplacing = NULL;
+  if (!rq->plugin_data.hasProcessDoubleReplacing)
+    vbe->e.processDoubleReplacing = NULL;
+}
+
 void vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
                                     struct vst_bridge_request *rq)
 {
@@ -186,6 +207,9 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
     // handle request
     if (rq->cmd == VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK) {
       vst_bridge_handle_audio_master(vbe, rq);
+      continue;
+    } else if (rq->cmd == VST_BRIDGE_CMD_PLUGIN_DATA) {
+      copy_plugin_data(vbe, rq);
       continue;
     }
 
@@ -632,23 +656,12 @@ bool vst_bridge_call_plugin_main(struct vst_bridge_effect *vbe)
     LOG("cmd: %d, tag: %d, bytes: %d\n", rq.cmd, rq.tag, rbytes);
 
     switch (rq.cmd) {
+    case VST_BRIDGE_CMD_PLUGIN_DATA:
+      copy_plugin_data(vbe, &rq);
+      break;
+
     case VST_BRIDGE_CMD_PLUGIN_MAIN:
-      vbe->e.numPrograms  = rq.plugin_data.numPrograms;
-      vbe->e.numParams    = rq.plugin_data.numParams;
-      vbe->e.numInputs    = rq.plugin_data.numInputs;
-      vbe->e.numOutputs   = rq.plugin_data.numOutputs;
-      vbe->e.flags        = rq.plugin_data.flags;
-      vbe->e.initialDelay = rq.plugin_data.initialDelay;
-      vbe->e.uniqueID     = rq.plugin_data.uniqueID;
-      vbe->e.version      = rq.plugin_data.version;
-      if (!rq.plugin_data.hasSetParameter)
-        vbe->e.setParameter = NULL;
-      if (!rq.plugin_data.hasGetParameter)
-        vbe->e.getParameter = NULL;
-      if (!rq.plugin_data.hasProcessReplacing)
-        vbe->e.processReplacing = NULL;
-      if (!rq.plugin_data.hasProcessDoubleReplacing)
-        vbe->e.processDoubleReplacing = NULL;
+      copy_plugin_data(vbe, &rq);
       return true;
 
     case VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK:

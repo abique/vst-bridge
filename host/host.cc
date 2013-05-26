@@ -40,16 +40,17 @@ typedef AEffect *(VSTCALLBACK *plug_main_f)(audioMasterCallback audioMaster);
 struct vst_bridge_host {
   typedef std::list<vst_bridge_request> pending_type;
 
-  int                 socket;
-  struct AEffect     *e;
-  uint32_t            next_tag;
-  bool                stop;
-  struct VstEvents   *ves;
-  struct VstTimeInfo  time_info;
-  HWND                hwnd;
-  DWORD               main_thread_id;
-  pthread_mutex_t     lock;
-  pending_type        pending;
+  int                            socket;
+  struct AEffect                *e;
+  uint32_t                       next_tag;
+  bool                           stop;
+  struct VstEvents              *ves;
+  struct VstTimeInfo             time_info;
+  HWND                           hwnd;
+  DWORD                          main_thread_id;
+  pthread_mutex_t                lock;
+  pending_type                   pending;
+  struct vst_bridge_plugin_data  plugin_data;
 };
 
 struct vst_bridge_host g_host = {
@@ -59,6 +60,47 @@ struct vst_bridge_host g_host = {
   false,
   NULL
 };
+
+void copy_plugin_data(void)
+{
+  g_host.plugin_data.hasSetParameter           = g_host.e->setParameter;
+  g_host.plugin_data.hasGetParameter           = g_host.e->getParameter;
+  g_host.plugin_data.hasProcessReplacing       = g_host.e->processReplacing;
+  g_host.plugin_data.hasProcessDoubleReplacing = g_host.e->processDoubleReplacing;
+  g_host.plugin_data.numPrograms               = g_host.e->numPrograms;
+  g_host.plugin_data.numParams                 = g_host.e->numParams;
+  g_host.plugin_data.numInputs                 = g_host.e->numInputs;
+  g_host.plugin_data.numOutputs                = g_host.e->numOutputs;
+  g_host.plugin_data.flags                     = g_host.e->flags;
+  g_host.plugin_data.initialDelay              = g_host.e->initialDelay;
+  g_host.plugin_data.uniqueID                  = g_host.e->uniqueID;
+  g_host.plugin_data.version                   = g_host.e->version;
+}
+
+void check_plugin_data(void)
+{
+  if (!g_host.e)
+    return;
+
+#define CHECK_FIELD(X) (g_host.plugin_data.X != g_host.e->X)
+  if (CHECK_FIELD(numPrograms) ||
+      CHECK_FIELD(numParams) ||
+      CHECK_FIELD(numInputs) ||
+      CHECK_FIELD(numOutputs) ||
+      CHECK_FIELD(flags) ||
+      CHECK_FIELD(initialDelay) ||
+      CHECK_FIELD(uniqueID) ||
+      CHECK_FIELD(version)) {
+    copy_plugin_data();
+
+    struct vst_bridge_request rq;
+    rq.tag = 0;
+    rq.cmd = VST_BRIDGE_CMD_PLUGIN_DATA;
+    memcpy(&rq.plugin_data, &g_host.plugin_data, sizeof (rq.plugin_data));
+    write(g_host.socket, &rq, sizeof (rq));
+  }
+#undef CHECK_FIELD(X)
+}
 
 bool serve_request2(struct vst_bridge_request *rq);
 
@@ -338,6 +380,7 @@ bool serve_request(void)
   }
 
   bool ret = serve_request2(&rq);
+  check_plugin_data();
 
   pthread_mutex_unlock(&g_host.lock);
   return ret;
@@ -491,7 +534,9 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
                                         float     opt)
 {
   pthread_mutex_lock(&g_host.lock);
+  check_plugin_data();
   VstIntPtr ret = host_audio_master2(effect, opcode, index, value, ptr, opt);
+  check_plugin_data();
   pthread_mutex_unlock(&g_host.lock);
   LOG("  => audio master finished\n");
   return ret;
@@ -568,21 +613,12 @@ int main(int argc, char **argv)
 
   // send plugin main finished
   {
+    copy_plugin_data();
+
     struct vst_bridge_request rq;
     rq.tag = 0;
     rq.cmd = VST_BRIDGE_CMD_PLUGIN_MAIN;
-    rq.plugin_data.hasSetParameter           = g_host.e->setParameter;
-    rq.plugin_data.hasGetParameter           = g_host.e->getParameter;
-    rq.plugin_data.hasProcessReplacing       = g_host.e->processReplacing;
-    rq.plugin_data.hasProcessDoubleReplacing = g_host.e->processDoubleReplacing;
-    rq.plugin_data.numPrograms               = g_host.e->numPrograms;
-    rq.plugin_data.numParams                 = g_host.e->numParams;
-    rq.plugin_data.numInputs                 = g_host.e->numInputs;
-    rq.plugin_data.numOutputs                = g_host.e->numOutputs;
-    rq.plugin_data.flags                     = g_host.e->flags;
-    rq.plugin_data.initialDelay              = g_host.e->initialDelay;
-    rq.plugin_data.uniqueID                  = g_host.e->uniqueID;
-    rq.plugin_data.version                   = g_host.e->version;
+    memcpy(&rq.plugin_data, &g_host.plugin_data, sizeof (rq.plugin_data));
     write(g_host.socket, &rq, sizeof (rq));
   }
 
