@@ -93,12 +93,19 @@ void vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
   case __audioMasterWantMidiDeprecated:
   case __audioMasterNeedIdleDeprecated:
   case audioMasterCanDo:
+  case audioMasterGetVendorVersion:
     rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
                                        rq->amrq.value, rq->amrq.data, rq->amrq.opt);
     write(vbe->socket, rq, VST_BRIDGE_AMRQ_LEN(0));
     break;
 
   case audioMasterGetProductString:
+  case audioMasterGetVendorString:
+    rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
+                                       rq->amrq.value, rq->amrq.data, rq->amrq.opt);
+    write(vbe->socket, rq, VST_BRIDGE_AMRQ_LEN(strlen((const char *)rq->amrq.data) + 1));
+    break;
+
   case __audioMasterTempoAtDeprecated:
   case audioMasterUpdateDisplay:
   case audioMasterBeginEdit:

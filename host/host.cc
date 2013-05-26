@@ -167,8 +167,8 @@ bool serve_request2(struct vst_bridge_request *rq)
         SetWindowPos(g_host.hwnd, 0, 0, 0,
                      rect->right - rect->left,
                      rect->bottom - rect->top,
-                     SWP_NOACTIVATE | SWP_NOMOVE |
-                     SWP_NOOWNERZORDER | SWP_NOZORDER);
+                     SWP_NOACTIVATE | SWP_NOMOVE);
+        // No borders: SWP_NOOWNERZORDER | SWP_NOZORDER);
       }
       ShowWindow(g_host.hwnd, SW_SHOWNORMAL);
       UpdateWindow(g_host.hwnd);
@@ -373,6 +373,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   case audioMasterGetAutomationState:
   case __audioMasterWantMidiDeprecated:
   case __audioMasterNeedIdleDeprecated:
+  case audioMasterGetVendorVersion:
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;
@@ -456,6 +457,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     return VstIntPtr(&g_host.time_info);
 
   case audioMasterGetProductString:
+  case audioMasterGetVendorString:
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;
@@ -464,7 +466,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     rq.amrq.opt      = opt;
     g_host.next_tag += 2;
 
-    write(g_host.socket, &rq, sizeof (rq));
+    write(g_host.socket, &rq, VST_BRIDGE_AMRQ_LEN(0));
     if (!wait_response(&rq, rq.tag))
       return 0;
     strcpy((char*)ptr, (const char*)rq.amrq.data);
@@ -602,7 +604,7 @@ int main(int argc, char **argv)
 
   g_host.hwnd = CreateWindow(APPLICATION_CLASS_NAME,
                              "app name",
-                             WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
+                             WS_OVERLAPPEDWINDOW,
                              CW_USEDEFAULT, CW_USEDEFAULT,
                              CW_USEDEFAULT, CW_USEDEFAULT,
                              0, 0, GetModuleHandle(NULL), 0);
