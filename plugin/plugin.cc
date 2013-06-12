@@ -115,6 +115,10 @@ void vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
   case __audioMasterNeedIdleDeprecated:
   case audioMasterCanDo:
   case audioMasterGetVendorVersion:
+  case audioMasterBeginEdit:
+  case audioMasterEndEdit:
+  case audioMasterUpdateDisplay:
+  case __audioMasterTempoAtDeprecated:
     rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
                                        rq->amrq.value, rq->amrq.data, rq->amrq.opt);
     write(vbe->socket, rq, VST_BRIDGE_AMRQ_LEN(0));
@@ -125,15 +129,6 @@ void vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
     rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
                                        rq->amrq.value, rq->amrq.data, rq->amrq.opt);
     write(vbe->socket, rq, VST_BRIDGE_AMRQ_LEN(strlen((const char *)rq->amrq.data) + 1));
-    break;
-
-  case __audioMasterTempoAtDeprecated:
-  case audioMasterUpdateDisplay:
-  case audioMasterBeginEdit:
-  case audioMasterEndEdit:
-    rq->amrq.value = vbe->audio_master(&vbe->e, rq->amrq.opcode, rq->amrq.index,
-                                       rq->amrq.value, rq->amrq.data, rq->amrq.opt);
-    write(vbe->socket, rq, sizeof (*rq));
     break;
 
   case audioMasterProcessEvents: {
