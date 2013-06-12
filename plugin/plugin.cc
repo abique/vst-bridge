@@ -30,7 +30,7 @@ const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
 
 #define CRIT(Args...) fprintf(stderr, Args)
 
-#include <vst2.x/aeffectx.h>
+#include "../vstsdk2.4/pluginterfaces/vst2.x/aeffectx.h"
 
 struct vst_bridge_effect {
   vst_bridge_effect()

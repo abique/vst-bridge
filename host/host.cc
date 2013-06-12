@@ -18,7 +18,7 @@
 # endif
 #endif
 
-#include </usr/include/vst2.x/aeffectx.h>
+#include "../vstsdk2.4/pluginterfaces/vst2.x/aeffectx.h"
 
 #include "../common/common.h"
 
