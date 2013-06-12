@@ -202,7 +202,7 @@ bool serve_request2(struct vst_bridge_request *rq)
 
     case effEditOpen: {
       rq->erq.value = g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
-      write(g_host.socket, rq, sizeof (*rq));
+      write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
       ERect * rect = NULL;
       g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
       if (rect) {
@@ -222,7 +222,7 @@ bool serve_request2(struct vst_bridge_request *rq)
       rq->erq.value = g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
       if (rect)
         memcpy(rq->erq.data, rect, sizeof (*rect));
-      write(g_host.socket, rq, sizeof (*rq));
+      write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(sizeof (*rect)));
       return true;
     }
 
@@ -249,7 +249,7 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effSetChunk: {
       void *data = malloc(rq->erq.value);
       if (!data && rq->erq.value > 0) {
-        write(g_host.socket, rq, sizeof (*rq));
+        write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
         return true;
       }
 

@@ -427,7 +427,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     vst_bridge_wait_response(vbe, &rq, rq.tag);
     memcpy(&vbe->rect, rq.erq.data, sizeof (vbe->rect));
     ERect **r = (ERect **)ptr;
-    *r = &vbe->rect;
+    *r = rq.erq.value ? &vbe->rect : NULL;
     vbe->rect.top = 0;
     vbe->rect.bottom = 1;
     vbe->rect.left = 0;
