@@ -207,8 +207,8 @@ bool serve_request2(struct vst_bridge_request *rq)
       g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
       if (rect) {
         SetWindowPos(g_host.hwnd, 0, 0, 0,
-                     rect->right - rect->left,
-                     rect->bottom - rect->top,
+                     rect->right + 6,
+                     rect->bottom + 22,
                      SWP_NOACTIVATE | SWP_NOMOVE);
         // No borders: SWP_NOOWNERZORDER | SWP_NOZORDER);
       }
