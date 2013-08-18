@@ -217,7 +217,7 @@ void vst_bridge_call_process(AEffect* effect,
                              float**  outputs,
                              VstInt32 sampleFrames)
 {
-  struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
+  struct vst_bridge_effect *vbe = container_of(effect, struct vst_bridge_effect, e);
   struct vst_bridge_request rq;
 
   pthread_mutex_lock(&vbe->lock);
@@ -246,7 +246,7 @@ void vst_bridge_call_process_double(AEffect* effect,
                                     double**  outputs,
                                     VstInt32 sampleFrames)
 {
-  struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
+  struct vst_bridge_effect *vbe = container_of(effect, struct vst_bridge_effect, e);
   struct vst_bridge_request rq;
 
   pthread_mutex_lock(&vbe->lock);
@@ -272,7 +272,7 @@ void vst_bridge_call_process_double(AEffect* effect,
 float vst_bridge_call_get_parameter(AEffect* effect,
                                     VstInt32 index)
 {
-  struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
+  struct vst_bridge_effect *vbe = container_of(effect, struct vst_bridge_effect, e);
   struct vst_bridge_request rq;
 
   pthread_mutex_lock(&vbe->lock);
@@ -291,7 +291,7 @@ void vst_bridge_call_set_parameter(AEffect* effect,
                                    VstInt32 index,
                                    float    parameter)
 {
-  struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
+  struct vst_bridge_effect *vbe = container_of(effect, struct vst_bridge_effect, e);
   struct vst_bridge_request rq;
 
   pthread_mutex_lock(&vbe->lock);
@@ -311,7 +311,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
                                              void*     ptr,
                                              float     opt)
 {
-  struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
+  struct vst_bridge_effect *vbe = container_of(effect, struct vst_bridge_effect, e);
   struct vst_bridge_request rq;
   ssize_t len;
 
@@ -620,7 +620,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher(AEffect*  effect,
                                             void*     ptr,
                                             float     opt)
 {
-  struct vst_bridge_effect *vbe = (struct vst_bridge_effect *)effect->user;
+  struct vst_bridge_effect *vbe = container_of(effect, struct vst_bridge_effect, e);
 
   pthread_mutex_lock(&vbe->lock);
   VstIntPtr ret =  vst_bridge_call_effect_dispatcher2(
@@ -692,7 +692,7 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
 
   // XXX move to the class description
   vbe->audio_master             = audio_master;
-  vbe->e.user                   = vbe;
+  vbe->e.user                   = NULL;
   vbe->e.magic                  = kEffectMagic;
   vbe->e.dispatcher             = vst_bridge_call_effect_dispatcher;
   vbe->e.setParameter           = vst_bridge_call_set_parameter;
