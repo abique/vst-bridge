@@ -672,6 +672,12 @@ bool vst_bridge_call_plugin_main(struct vst_bridge_effect *vbe)
 
 extern "C" {
   AEffect* VSTPluginMain(audioMasterCallback audio_master);
+  AEffect* VSTPluginMain2(audioMasterCallback audio_master) asm ("main");
+}
+
+AEffect* VSTPluginMain2(audioMasterCallback audio_master)
+{
+  return VSTPluginMain(audio_master);
 }
 
 AEffect* VSTPluginMain(audioMasterCallback audio_master)
