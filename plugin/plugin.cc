@@ -488,6 +488,23 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
       return 0;
     return rq.erq.value;
 
+  case effGetParameterProperties:
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
+
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
+    if (!vst_bridge_wait_response(vbe, &rq, rq.tag))
+      return 0;
+
+    if (ptr && rq.amrq.value)
+      memcpy(ptr, rq.erq.data, sizeof (VstParameterProperties));
+    return rq.amrq.value;
+
   case effGetChunk: {
     rq.tag         = vbe->next_tag;
     rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
