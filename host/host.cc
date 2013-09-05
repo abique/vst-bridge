@@ -404,8 +404,9 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   ssize_t len;
   struct vst_bridge_request rq;
 
-  LOG("[%p] host_audio_master(%d, %d, %d, %p, %f) => %d\n",
-      pthread_self(), opcode, index, value, ptr, opt, g_host.next_tag);
+  LOG("[%p] host_audio_master(%s, %d, %d, %p, %f) => %d\n",
+      pthread_self(), vst_bridge_audio_master_opcode_name[opcode],
+      index, value, ptr, opt, g_host.next_tag);
 
   switch (opcode) {
     // no additional data
