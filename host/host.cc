@@ -134,8 +134,9 @@ bool wait_response(struct vst_bridge_request *rq,
 
 bool serve_request2(struct vst_bridge_request *rq)
 {
-  LOG("[%p] serve request: tag: %d, cmd: %d\n",
-      pthread_self(), rq->tag, rq->cmd);
+  LOG("[%p] serve request: tag: %d, cmd: %s\n",
+      pthread_self(), rq->tag,
+      vst_bridge_effect_opcode_name[rq->cmd]);
 
   switch (rq->cmd) {
   case VST_BRIDGE_CMD_EFFECT_DISPATCHER:
@@ -547,7 +548,8 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
   VstIntPtr ret = host_audio_master2(effect, opcode, index, value, ptr, opt);
   check_plugin_data();
   pthread_mutex_unlock(&g_host.lock);
-  LOG("  => audio master finished\n");
+  LOG("  => audio master finished: %s\n",
+      vst_bridge_audio_master_opcode_name[opcode]);
   return ret;
 }
 
