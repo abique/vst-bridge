@@ -167,6 +167,7 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effBeginSetProgram:
     case effEndSetProgram:
     case effGetVendorVersion:
+    case effCanBeAutomated:
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
