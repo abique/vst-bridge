@@ -28,7 +28,7 @@
 #define VST_BRIDGE_WMSG_EDIT_OPEN 19042
 
 #if 0
-# define LOG(Args...) fprintf(stderr, Args)
+# define LOG(Args...) fprintf(stderr, "H: " Args)
 #else
 # define LOG(Args...)
 #endif
@@ -176,6 +176,7 @@ bool serve_request2(struct vst_bridge_request *rq)
 
     case effGetOutputProperties:
     case effGetInputProperties:
+      memset(rq->erq.data, 0, sizeof (VstPinProperties));
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(sizeof (VstPinProperties)));
@@ -188,10 +189,10 @@ bool serve_request2(struct vst_bridge_request *rq)
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(sizeof (VstParameterProperties)));
       return true;
 
+    case effGetProgramName:
     case effGetParamLabel:
     case effGetParamDisplay:
     case effGetParamName:
-    case effGetProgramName:
     case effGetEffectName:
     case effGetVendorString:
     case effGetProductString:
@@ -410,6 +411,9 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
       index, value, ptr, opt, g_host.next_tag);
 
   switch (opcode) {
+  case audioMasterSizeWindow:
+    return true;
+
     // no additional data
   case audioMasterAutomate:
   case audioMasterVersion:
@@ -417,7 +421,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   case audioMasterIdle:
   case __audioMasterPinConnectedDeprecated:
   case audioMasterIOChanged:
-  case audioMasterSizeWindow:
+    //case audioMasterSizeWindow:
   case audioMasterGetSampleRate:
   case audioMasterGetBlockSize:
   case audioMasterGetInputLatency:
@@ -427,6 +431,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   case __audioMasterWantMidiDeprecated:
   case __audioMasterNeedIdleDeprecated:
   case audioMasterGetVendorVersion:
+    //case audioMasterUpdateDisplay:
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;
@@ -438,6 +443,9 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     write(g_host.socket, &rq, VST_BRIDGE_AMRQ_LEN(0));
     wait_response(&rq, rq.tag);
     return rq.amrq.value;
+
+  case audioMasterUpdateDisplay:
+    return 1;
 
   case audioMasterCanDo:
     rq.tag           = g_host.next_tag;
@@ -454,7 +462,6 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     return rq.amrq.value;
 
   case __audioMasterTempoAtDeprecated:
-  case audioMasterUpdateDisplay:
   case audioMasterBeginEdit:
   case audioMasterEndEdit:
     rq.tag           = g_host.next_tag;
@@ -494,6 +501,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   }
 
   case audioMasterGetTime:
+    return 0;
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;

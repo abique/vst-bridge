@@ -23,7 +23,7 @@ const char g_plugin_path[PATH_MAX] = VST_BRIDGE_TPL_MAGIC;
 const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
 
 #if 0
-# define LOG(Args...) fprintf(stderr, Args)
+# define LOG(Args...) fprintf(stderr, "P: " Args)
 #else
 # define LOG(Args...) do { ; } while (0)
 #endif
@@ -347,9 +347,22 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     vst_bridge_wait_response(vbe, &rq, rq.tag);
     return rq.amrq.value;
 
-  case effOpen:
   case effGetOutputProperties:
   case effGetInputProperties:
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
+
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
+    vst_bridge_wait_response(vbe, &rq, rq.tag);
+    memcpy(ptr, rq.erq.data, sizeof (VstPinProperties));
+    return rq.erq.value;
+
+  case effOpen:
   case effGetPlugCategory:
   case effGetVstVersion:
   case effGetVendorVersion:
