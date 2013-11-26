@@ -501,7 +501,6 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   }
 
   case audioMasterGetTime:
-    return 0;
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
     rq.amrq.opcode   = opcode;
