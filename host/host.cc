@@ -212,16 +212,17 @@ bool serve_request2(struct vst_bridge_request *rq)
 
     case effEditOpen: {
       rq->erq.value = g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
+      rq->erq.index = (ptrdiff_t)GetPropA(g_host.hwnd, "__wine_x11_whole_window");
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
-      ERect * rect = NULL;
-      g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
-      if (rect) {
-        SetWindowPos(g_host.hwnd, 0, 0, 0,
-                     rect->right + 6,
-                     rect->bottom + 22,
-                     SWP_NOACTIVATE | SWP_NOMOVE);
-        // No borders: SWP_NOOWNERZORDER | SWP_NOZORDER);
-      }
+      // ERect * rect = NULL;
+      // g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
+      // if (rect) {
+      //   SetWindowPos(g_host.hwnd, 0, 0, 0,
+      //                rect->right + 6,
+      //                rect->bottom + 22,
+      //                SWP_NOACTIVATE | SWP_NOMOVE);
+      //   // No borders: SWP_NOOWNERZORDER | SWP_NOZORDER);
+      // }
       ShowWindow(g_host.hwnd, SW_SHOWNORMAL);
       UpdateWindow(g_host.hwnd);
       return true;

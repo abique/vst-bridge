@@ -401,20 +401,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     return 0;
 
   case effEditOpen: {
-    // Display *display = (Display *)value;
-    // Window window = (Window)ptr;
-    // XEvent ev;
-
-    // memset(&ev, 0, sizeof (ev));
-
-    // ev.xclient.type = ClientMessage;
-    // ev.xclient.window = window;
-    // ev.xclient.message_type = XInternAtom(display, "WM_PROTOCOLS", true);
-    // ev.xclient.format = 32;
-    // ev.xclient.data.l[0] = XInternAtom(display, "WM_DELETE_WINDOW", false);
-    // ev.xclient.data.l[1] = CurrentTime;
-    // XSendEvent(display, window, False, NoEventMask, &ev);
-
     rq.tag         = vbe->next_tag;
     rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
     rq.erq.opcode  = opcode;
@@ -425,6 +411,38 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
 
     write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
     vst_bridge_wait_response(vbe, &rq, rq.tag);
+
+    Display *display = (Display *)value;
+    Window   parent  = (Window)ptr;
+    Window   child   = (Window)rq.erq.index;
+
+    XReparentWindow(display, child, parent, 0, 0);
+    //sendXembedMessage(display, child, XEMBED_EMBEDDED_NOTIFY, 0, window, 0);
+    //sendXembedMessage(display, child, XEMBED_FOCUS_OUT, 0, 0, 0);
+
+    XEvent ev;
+
+    memset(&ev, 0, sizeof (ev));
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = child;
+    ev.xclient.message_type = XInternAtom(display, "_XEMBED", false);
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = CurrentTime;
+    ev.xclient.data.l[1] = XEMBED_EMBEDDED_NOTIFY;
+    ev.xclient.data.l[3] = parent;
+    XSendEvent(display, child, false, NoEventMask, &ev);
+    XSync(display, false);
+
+    memset(&ev, 0, sizeof (ev));
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = child;
+    ev.xclient.message_type = XInternAtom(display, "_XEMBED", false);
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = CurrentTime;
+    ev.xclient.data.l[1] = XEMBED_FOCUS_OUT;
+    XSendEvent(display, child, false, NoEventMask, &ev);
+    XSync(display, false);
+
     return rq.erq.value;
   }
 
@@ -442,10 +460,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     memcpy(&vbe->rect, rq.erq.data, sizeof (vbe->rect));
     ERect **r = (ERect **)ptr;
     *r = rq.erq.value ? &vbe->rect : NULL;
-    vbe->rect.top = 0;
-    vbe->rect.bottom = 1;
-    vbe->rect.left = 0;
-    vbe->rect.right = 1;
     return rq.amrq.value;
   }
 
