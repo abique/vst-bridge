@@ -417,8 +417,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     Window   child   = (Window)rq.erq.index;
 
     XReparentWindow(display, child, parent, 0, 0);
-    //sendXembedMessage(display, child, XEMBED_EMBEDDED_NOTIFY, 0, window, 0);
-    //sendXembedMessage(display, child, XEMBED_FOCUS_OUT, 0, 0, 0);
 
     XEvent ev;
 

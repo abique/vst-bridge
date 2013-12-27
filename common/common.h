@@ -75,7 +75,7 @@ struct vst_bridge_plugin_data {
   int32_t initialDelay;
   int32_t uniqueID;
   int32_t version;
-};
+} __attribute__((packed));
 
 struct vst_bridge_midi_event {
   int32_t type;
@@ -88,7 +88,7 @@ struct vst_bridge_midi_event {
 struct vst_bridge_midi_events {
   uint32_t nb;
   struct vst_bridge_midi_event events[0];
-};
+} __attribute__((packed));
 
 struct vst_bridge_request {
   uint32_t tag;

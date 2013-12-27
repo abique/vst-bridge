@@ -12,6 +12,8 @@
 
 #include <windows.h>
 
+#include <X11/Xlib.h>
+
 #ifdef _WIN64
 # ifndef __LP64__
 #  define __LP64__
