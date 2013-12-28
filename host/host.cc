@@ -35,7 +35,7 @@
 # define LOG(Args...)
 #endif
 
-#define CRIT(Args...) fprintf(stderr, Args)
+#define CRIT(Args...) fprintf(stderr, "[CRIT] H: " Args)
 
 typedef AEffect *(VSTCALLBACK *plug_main_f)(audioMasterCallback audioMaster);
 
@@ -136,12 +136,12 @@ bool wait_response(struct vst_bridge_request *rq,
 
 bool serve_request2(struct vst_bridge_request *rq)
 {
-  LOG("[%p] serve request: tag: %d, cmd: %s\n",
-      pthread_self(), rq->tag,
-      vst_bridge_effect_opcode_name[rq->cmd]);
-
   switch (rq->cmd) {
   case VST_BRIDGE_CMD_EFFECT_DISPATCHER:
+    LOG("[%p] effect command: tag: %d, op: %s\n",
+      pthread_self(), rq->tag,
+      vst_bridge_effect_opcode_name[rq->erq.opcode]);
+
     switch (rq->erq.opcode) {
     case __effIdleDeprecated:
     case effEditIdle:
@@ -155,7 +155,6 @@ bool serve_request2(struct vst_bridge_request *rq)
     case __effConnectInputDeprecated:
     case effGetVstVersion:
     case effGetPlugCategory:
-    case effEditClose:
     case effMainsChanged:
     case effStartProcess:
     case effStopProcess:
@@ -213,32 +212,41 @@ bool serve_request2(struct vst_bridge_request *rq)
       return true;
 
     case effEditOpen: {
+      assert(!g_host.hwnd);
+      g_host.hwnd = CreateWindowEx(WS_EX_TOOLWINDOW,
+                                   APPLICATION_CLASS_NAME, "Plugin",
+                                   WS_POPUP,
+                                   0, 0, 1200, 670,
+                                   0, 0, GetModuleHandle(0), 0);
+      if (!g_host.hwnd)
+        CRIT("failed to create window\n");
+
       rq->erq.value = g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
       rq->erq.index = (ptrdiff_t)GetPropA(g_host.hwnd, "__wine_x11_whole_window");
+      CRIT("wine x11 whole window: %p\n", rq->erq.index);
+
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
-
-      sleep(1);
-
-      ERect * rect = NULL;
-      g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
-      if (rect) {
-        SetWindowPos(g_host.hwnd, 0, 0, 0,
-                     rect->right,
-                     rect->bottom,
-                     SWP_NOACTIVATE | SWP_NOMOVE);
-        // No borders: SWP_NOOWNERZORDER | SWP_NOZORDER);
-      }
 
       ShowWindow(g_host.hwnd, SW_SHOWNORMAL);
       UpdateWindow(g_host.hwnd);
+
       return true;
     }
+
+    case effEditClose:
+      CloseWindow(g_host.hwnd);
+      g_host.hwnd = 0;
+      rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
+                                           rq->erq.value, rq->erq.data, rq->erq.opt);
+      write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
+      return true;
 
     case effEditGetRect: {
       ERect * rect = NULL;
       rq->erq.value = g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
       if (rect)
         memcpy(rq->erq.data, rect, sizeof (*rect));
+      CRIT("value: %d, rect: %d, %d\n", rq->erq.value, rect->right, rect->bottom);
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(sizeof (*rect)));
       return true;
     }
@@ -570,6 +578,8 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
 LRESULT WINAPI
 MainProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+  CRIT("In main proc\n");
+
   switch (msg) {
   case WM_CLOSE:
     ShowWindow(g_host.hwnd, SW_HIDE);
@@ -593,6 +603,7 @@ int main(int argc, char **argv)
   HMODULE module;
   const char *plugin_path = argv[1];
 
+  g_host.hwnd = 0;
   g_host.main_thread_id = GetCurrentThreadId();
   {
     pthread_mutexattr_t attr;
@@ -648,28 +659,17 @@ int main(int argc, char **argv)
   }
 
   WNDCLASSEX wclass;
-  wclass.cbSize        = sizeof (WNDCLASSEX);
-  wclass.style         = 0;
+  memset(&wclass, 0, sizeof (wclass));
+  wclass.cbSize        = sizeof (wclass);
+  wclass.style         = CS_HREDRAW | CS_VREDRAW;
   wclass.lpfnWndProc   = MainProc;
-  wclass.cbClsExtra    = 0;
-  wclass.cbWndExtra    = 0;
   wclass.hInstance     = GetModuleHandle(NULL);
   wclass.hIcon         = LoadIcon(GetModuleHandle(NULL), APPLICATION_CLASS_NAME);
   wclass.hCursor       = LoadCursor(0, IDI_APPLICATION);
-  wclass.lpszMenuName  = "MENU_VST_BRIDGE";
   wclass.lpszClassName = APPLICATION_CLASS_NAME;
-  wclass.hIconSm       = 0;
 
   if (!RegisterClassEx(&wclass))
     LOG("failed to register Windows application class\n");
-
-  g_host.hwnd = CreateWindowEx(WS_EX_TOOLWINDOW,
-                               APPLICATION_CLASS_NAME, "Plugin",
-                               WS_POPUP,
-                               0, 0, 400, 400,
-                               0, 0, 0, 0);
-  if (!g_host.hwnd)
-    LOG("failed to create window\n");
 
   // HANDLE audio_thread = CreateThread(
   //   NULL, 8 * 1024 * 1024, vst_bridge_audio_thread, NULL, 0, NULL);
@@ -692,8 +692,10 @@ int main(int argc, char **argv)
       break;
 
     while (GetQueueStatus(QS_ALLINPUT)) {
-      if (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
+      if (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
+        CRIT("PeekMessage: hwnd: %p, message: %d\n", msg.hwnd, msg.message);
         DispatchMessage(&msg);
+      }
     }
   }
 

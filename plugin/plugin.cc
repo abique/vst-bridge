@@ -28,7 +28,7 @@ const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
 # define LOG(Args...) do { ; } while (0)
 #endif
 
-#define CRIT(Args...) fprintf(stderr, Args)
+#define CRIT(Args...) fprintf(stderr, "[CRIT] P: " Args)
 
 #include "../vstsdk2.4/pluginterfaces/vst2.x/aeffectx.h"
 
@@ -415,6 +415,14 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     Display *display = (Display *)value;
     Window   parent  = (Window)ptr;
     Window   child   = (Window)rq.erq.index;
+    bool     close_display = false;
+
+    if (!display) {
+      display = XOpenDisplay(NULL);
+      close_display = !!display;
+    }
+
+    CRIT(" display: %p, window: %p\n", display, parent);
 
     XReparentWindow(display, child, parent, 0, 0);
 
@@ -441,6 +449,9 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     XSendEvent(display, child, false, NoEventMask, &ev);
     XSync(display, false);
 
+    if (close_display)
+      XCloseDisplay(display);
+
     return rq.erq.value;
   }
 
@@ -457,8 +468,9 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     vst_bridge_wait_response(vbe, &rq, rq.tag);
     memcpy(&vbe->rect, rq.erq.data, sizeof (vbe->rect));
     ERect **r = (ERect **)ptr;
-    *r = rq.erq.value ? &vbe->rect : NULL;
-    return rq.amrq.value;
+    *r = &vbe->rect;
+    CRIT("value: %d, rect: %d, %d\n", rq.erq.value, (*r)->right, (*r)->bottom);
+    return rq.erq.value;
   }
 
   case effSetProgramName:
