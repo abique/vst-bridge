@@ -223,7 +223,6 @@ bool serve_request2(struct vst_bridge_request *rq)
 
       rq->erq.value = g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
       rq->erq.index = (ptrdiff_t)GetPropA(g_host.hwnd, "__wine_x11_whole_window");
-      CRIT("wine x11 whole window: %p\n", rq->erq.index);
 
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
 
@@ -246,7 +245,6 @@ bool serve_request2(struct vst_bridge_request *rq)
       rq->erq.value = g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
       if (rect)
         memcpy(rq->erq.data, rect, sizeof (*rect));
-      CRIT("value: %d, rect: %d, %d\n", rq->erq.value, rect->right, rect->bottom);
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(sizeof (*rect)));
       return true;
     }
@@ -578,8 +576,6 @@ VstIntPtr VSTCALLBACK host_audio_master(AEffect*  effect,
 LRESULT WINAPI
 MainProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-  CRIT("In main proc\n");
-
   switch (msg) {
   case WM_CLOSE:
     ShowWindow(g_host.hwnd, SW_HIDE);
@@ -693,7 +689,6 @@ int main(int argc, char **argv)
 
     while (GetQueueStatus(QS_ALLINPUT)) {
       if (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
-        CRIT("PeekMessage: hwnd: %p, message: %d\n", msg.hwnd, msg.message);
         DispatchMessage(&msg);
       }
     }

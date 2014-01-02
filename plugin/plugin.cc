@@ -412,45 +412,45 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
     vst_bridge_wait_response(vbe, &rq, rq.tag);
 
-    Display *display = (Display *)value;
-    Window   parent  = (Window)ptr;
-    Window   child   = (Window)rq.erq.index;
-    bool     close_display = false;
+    if (getenv("VST_BRIDGE_XEMBED")) {
+      Display *display = (Display *)value;
+      Window   parent  = (Window)ptr;
+      Window   child   = (Window)rq.erq.index;
+      bool     close_display = false;
 
-    if (!display) {
-      display = XOpenDisplay(NULL);
-      close_display = !!display;
+      if (!display) {
+        display = XOpenDisplay(NULL);
+        close_display = !!display;
+      }
+
+      XReparentWindow(display, child, parent, 0, 0);
+
+      XEvent ev;
+
+      memset(&ev, 0, sizeof (ev));
+      ev.xclient.type = ClientMessage;
+      ev.xclient.window = child;
+      ev.xclient.message_type = XInternAtom(display, "_XEMBED", false);
+      ev.xclient.format = 32;
+      ev.xclient.data.l[0] = CurrentTime;
+      ev.xclient.data.l[1] = XEMBED_EMBEDDED_NOTIFY;
+      ev.xclient.data.l[3] = parent;
+      XSendEvent(display, child, false, NoEventMask, &ev);
+      XSync(display, false);
+
+      memset(&ev, 0, sizeof (ev));
+      ev.xclient.type = ClientMessage;
+      ev.xclient.window = child;
+      ev.xclient.message_type = XInternAtom(display, "_XEMBED", false);
+      ev.xclient.format = 32;
+      ev.xclient.data.l[0] = CurrentTime;
+      ev.xclient.data.l[1] = XEMBED_FOCUS_OUT;
+      XSendEvent(display, child, false, NoEventMask, &ev);
+      XSync(display, false);
+
+      if (close_display)
+        XCloseDisplay(display);
     }
-
-    CRIT(" display: %p, window: %p\n", display, parent);
-
-    XReparentWindow(display, child, parent, 0, 0);
-
-    XEvent ev;
-
-    memset(&ev, 0, sizeof (ev));
-    ev.xclient.type = ClientMessage;
-    ev.xclient.window = child;
-    ev.xclient.message_type = XInternAtom(display, "_XEMBED", false);
-    ev.xclient.format = 32;
-    ev.xclient.data.l[0] = CurrentTime;
-    ev.xclient.data.l[1] = XEMBED_EMBEDDED_NOTIFY;
-    ev.xclient.data.l[3] = parent;
-    XSendEvent(display, child, false, NoEventMask, &ev);
-    XSync(display, false);
-
-    memset(&ev, 0, sizeof (ev));
-    ev.xclient.type = ClientMessage;
-    ev.xclient.window = child;
-    ev.xclient.message_type = XInternAtom(display, "_XEMBED", false);
-    ev.xclient.format = 32;
-    ev.xclient.data.l[0] = CurrentTime;
-    ev.xclient.data.l[1] = XEMBED_FOCUS_OUT;
-    XSendEvent(display, child, false, NoEventMask, &ev);
-    XSync(display, false);
-
-    if (close_display)
-      XCloseDisplay(display);
 
     return rq.erq.value;
   }
@@ -469,7 +469,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     memcpy(&vbe->rect, rq.erq.data, sizeof (vbe->rect));
     ERect **r = (ERect **)ptr;
     *r = &vbe->rect;
-    CRIT("value: %d, rect: %d, %d\n", rq.erq.value, (*r)->right, (*r)->bottom);
     return rq.erq.value;
   }
 
