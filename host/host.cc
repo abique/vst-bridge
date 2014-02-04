@@ -58,7 +58,13 @@ struct vst_bridge_host g_host = {
   NULL,
   1,
   false,
-  NULL
+  NULL,
+  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+  0,
+  0,
+  pthread_mutex_t(),
+  vst_bridge_host::pending_type(),
+  {false, false, false, false, 0, 0, 0, 0, 0, 0, 0, 0}
 };
 
 void copy_plugin_data(void)
@@ -99,7 +105,7 @@ void check_plugin_data(void)
     memcpy(&rq.plugin_data, &g_host.plugin_data, sizeof (rq.plugin_data));
     write(g_host.socket, &rq, 8 + sizeof (rq.plugin_data));
   }
-#undef CHECK_FIELD(X)
+#undef CHECK_FIELD
 }
 
 bool serve_request2(struct vst_bridge_request *rq);
@@ -247,9 +253,9 @@ bool serve_request2(struct vst_bridge_request *rq)
       void *ptr;
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, &ptr, rq->erq.opt);
-      for (size_t off = 0; off < rq->erq.value; ) {
+      for (size_t off = 0; off < (size_t)rq->erq.value; ) {
         size_t can_write = MIN(VST_BRIDGE_CHUNK_SIZE, rq->erq.value - off);
-        memcpy(rq->erq.data, ptr + off, can_write);
+        memcpy(rq->erq.data, (void*)((intptr_t)ptr + off), can_write);
         off += can_write;
         write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(can_write));
       }
@@ -263,11 +269,11 @@ bool serve_request2(struct vst_bridge_request *rq)
         return true;
       }
 
-      for (size_t off = 0; off < rq->erq.value; ) {
+      for (size_t off = 0; off < (size_t)rq->erq.value; ) {
         size_t can_read = MIN(VST_BRIDGE_CHUNK_SIZE, rq->erq.value - off);
-        memcpy(data + off, rq->erq.data, can_read);
+        memcpy((void*)((intptr_t)data + off), rq->erq.data, can_read);
         off += can_read;
-        if (off == rq->erq.value)
+        if (off == (size_t)rq->erq.value)
           break;
         if (!wait_response(rq, rq->tag))
           return 0;
@@ -287,7 +293,7 @@ bool serve_request2(struct vst_bridge_request *rq)
       ves->numEvents = mes->nb;
       ves->reserved  = 0;
       struct vst_bridge_midi_event *me = mes->events;
-      for (int i = 0; i < mes->nb; ++i) {
+      for (size_t i = 0; i < mes->nb; ++i) {
         ves->events[i] = (VstEvent*)me;
         me = (struct vst_bridge_midi_event *)(me->data + me->byteSize);
       }
@@ -310,7 +316,7 @@ bool serve_request2(struct vst_bridge_request *rq)
 
     default:
       CRIT(" !!!!!!!!!! effectDispatcher unsupported: opcode: (%s, %d), index: %d,"
-           " value: %d, opt: %f\n", vst_bridge_effect_opcode_name[rq->erq.opcode],
+           " value: %ld, opt: %f\n", vst_bridge_effect_opcode_name[rq->erq.opcode],
            rq->erq.opcode, rq->erq.index, rq->erq.value, rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
@@ -537,7 +543,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
 
   default:
     CRIT("  !!!!!!!!!!!!!! audioMaster unsupported: opcode: (%s, %d), index: %d,"
-         " value: %d, ptr: %p, opt: %f\n",
+         " value: %ld, ptr: %p, opt: %f\n",
          vst_bridge_audio_master_opcode_name[opcode], opcode, index, value, ptr, opt);
     return 0;
   }
@@ -653,8 +659,9 @@ int main(int argc, char **argv)
   wclass.lpszClassName = APPLICATION_CLASS_NAME;
   wclass.hIconSm       = 0;
 
-  if (!RegisterClassEx(&wclass))
+  if (!RegisterClassEx(&wclass)) {
     LOG("failed to register Windows application class\n");
+  }
 
   g_host.hwnd = CreateWindow(APPLICATION_CLASS_NAME,
                              "app name",
@@ -662,8 +669,9 @@ int main(int argc, char **argv)
                              CW_USEDEFAULT, CW_USEDEFAULT,
                              CW_USEDEFAULT, CW_USEDEFAULT,
                              0, 0, GetModuleHandle(NULL), 0);
-  if (!g_host.hwnd)
+  if (!g_host.hwnd) {
     LOG("failed to create window\n");
+  }
 
   // HANDLE audio_thread = CreateThread(
   //   NULL, 8 * 1024 * 1024, vst_bridge_audio_thread, NULL, 0, NULL);
