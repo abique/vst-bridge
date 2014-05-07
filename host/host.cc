@@ -28,12 +28,26 @@
 #define VST_BRIDGE_WMSG_EDIT_OPEN 19042
 
 #if 0
-# define LOG(Args...) fprintf(stderr, "H: " Args)
+# define LOG(Args...)                           \
+  do {                                          \
+    fprintf(g_host.log, "H: " Args);            \
+    fflush(g_host.log);                         \
+  } while (0)
 #else
 # define LOG(Args...)
 #endif
 
-#define CRIT(Args...) fprintf(stderr, Args)
+#define CRIT(Args...)                           \
+  do {                                          \
+    fprintf(g_host.log, "[CRIT] H: " Args);     \
+    fflush(g_host.log);                         \
+  } while (0)
+
+#define CHECKED_WRITE(Fd, Data, Size)           \
+  do {                                          \
+    ssize_t __nb = write(Fd, Data, Size);       \
+    assert(__nb == Size);                       \
+  } while (0)
 
 typedef AEffect *(VSTCALLBACK *plug_main_f)(audioMasterCallback audioMaster);
 
@@ -51,6 +65,7 @@ struct vst_bridge_host {
   pthread_mutex_t                lock;
   pending_type                   pending;
   struct vst_bridge_plugin_data  plugin_data;
+  FILE                          *log;
 };
 
 struct vst_bridge_host g_host = {
@@ -140,12 +155,12 @@ bool wait_response(struct vst_bridge_request *rq,
 
 bool serve_request2(struct vst_bridge_request *rq)
 {
-  LOG("[%p] serve request: tag: %d, cmd: %s\n",
-      pthread_self(), rq->tag,
-      vst_bridge_effect_opcode_name[rq->cmd]);
-
   switch (rq->cmd) {
   case VST_BRIDGE_CMD_EFFECT_DISPATCHER:
+    LOG("[%p] effect command: tag: %d, op: %s\n",
+      pthread_self(), rq->tag,
+      vst_bridge_effect_opcode_name[rq->erq.opcode]);
+
     switch (rq->erq.opcode) {
     case __effIdleDeprecated:
     case effEditIdle:
@@ -203,6 +218,7 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effGetVendorString:
     case effGetProductString:
     case effGetProgramNameIndexed:
+    case effGetMidiKeyName:
     case effCanDo:
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
@@ -253,9 +269,9 @@ bool serve_request2(struct vst_bridge_request *rq)
       void *ptr;
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, &ptr, rq->erq.opt);
-      for (size_t off = 0; off < (size_t)rq->erq.value; ) {
+      for (size_t off = 0; off < rq->erq.value; ) {
         size_t can_write = MIN(VST_BRIDGE_CHUNK_SIZE, rq->erq.value - off);
-        memcpy(rq->erq.data, (void*)((intptr_t)ptr + off), can_write);
+        memcpy(rq->erq.data, ptr + off, can_write);
         off += can_write;
         write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(can_write));
       }
@@ -269,11 +285,11 @@ bool serve_request2(struct vst_bridge_request *rq)
         return true;
       }
 
-      for (size_t off = 0; off < (size_t)rq->erq.value; ) {
+      for (size_t off = 0; off < rq->erq.value; ) {
         size_t can_read = MIN(VST_BRIDGE_CHUNK_SIZE, rq->erq.value - off);
-        memcpy((void*)((intptr_t)data + off), rq->erq.data, can_read);
+        memcpy(data + off, rq->erq.data, can_read);
         off += can_read;
-        if (off == (size_t)rq->erq.value)
+        if (off == rq->erq.value)
           break;
         if (!wait_response(rq, rq->tag))
           return 0;
@@ -293,14 +309,15 @@ bool serve_request2(struct vst_bridge_request *rq)
       ves->numEvents = mes->nb;
       ves->reserved  = 0;
       struct vst_bridge_midi_event *me = mes->events;
-      for (size_t i = 0; i < mes->nb; ++i) {
+      for (int i = 0; i < mes->nb; ++i) {
         ves->events[i] = (VstEvent*)me;
         me = (struct vst_bridge_midi_event *)(me->data + me->byteSize);
       }
 
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, ves, rq->erq.opt);
-      write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
+      CHECKED_WRITE(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
+      fsync(g_host.socket);
       return true;
     }
 
@@ -316,7 +333,7 @@ bool serve_request2(struct vst_bridge_request *rq)
 
     default:
       CRIT(" !!!!!!!!!! effectDispatcher unsupported: opcode: (%s, %d), index: %d,"
-           " value: %ld, opt: %f\n", vst_bridge_effect_opcode_name[rq->erq.opcode],
+           " value: %d, opt: %f\n", vst_bridge_effect_opcode_name[rq->erq.opcode],
            rq->erq.opcode, rq->erq.index, rq->erq.value, rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
@@ -417,9 +434,6 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
       index, value, ptr, opt, g_host.next_tag);
 
   switch (opcode) {
-  case audioMasterSizeWindow:
-    return true;
-
     // no additional data
   case audioMasterAutomate:
   case audioMasterVersion:
@@ -437,6 +451,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   case __audioMasterWantMidiDeprecated:
   case __audioMasterNeedIdleDeprecated:
   case audioMasterGetVendorVersion:
+  case audioMasterSizeWindow:
     //case audioMasterUpdateDisplay:
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
@@ -543,7 +558,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
 
   default:
     CRIT("  !!!!!!!!!!!!!! audioMaster unsupported: opcode: (%s, %d), index: %d,"
-         " value: %ld, ptr: %p, opt: %f\n",
+         " value: %d, ptr: %p, opt: %f\n",
          vst_bridge_audio_master_opcode_name[opcode], opcode, index, value, ptr, opt);
     return 0;
   }
@@ -592,6 +607,14 @@ int main(int argc, char **argv)
   HMODULE module;
   const char *plugin_path = argv[1];
 
+  if (false) {
+    char path[128];
+    snprintf(path, sizeof (path), "/tmp/vst-bridge-host.%d.log", getpid());
+    g_host.log = fopen(path, "w+");
+  } else
+    g_host.log = stdout;
+
+  g_host.hwnd = 0;
   g_host.main_thread_id = GetCurrentThreadId();
   {
     pthread_mutexattr_t attr;
@@ -694,8 +717,9 @@ int main(int argc, char **argv)
       break;
 
     while (GetQueueStatus(QS_ALLINPUT)) {
-      if (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
+      if (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
         DispatchMessage(&msg);
+      }
     }
   }
 
