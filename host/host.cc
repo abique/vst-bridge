@@ -30,12 +30,26 @@
 #define VST_BRIDGE_WMSG_EDIT_OPEN 19042
 
 #if 0
-# define LOG(Args...) fprintf(stderr, "H: " Args)
+# define LOG(Args...)                           \
+  do {                                          \
+    fprintf(g_host.log, "H: " Args);            \
+    fflush(g_host.log);                         \
+  } while (0)
 #else
 # define LOG(Args...)
 #endif
 
-#define CRIT(Args...) fprintf(stderr, "[CRIT] H: " Args)
+#define CRIT(Args...)                           \
+  do {                                          \
+    fprintf(g_host.log, "[CRIT] H: " Args);     \
+    fflush(g_host.log);                         \
+  } while (0)
+
+#define CHECKED_WRITE(Fd, Data, Size)           \
+  do {                                          \
+    ssize_t __nb = write(Fd, Data, Size);       \
+    assert(__nb == Size);                       \
+  } while (0)
 
 typedef AEffect *(VSTCALLBACK *plug_main_f)(audioMasterCallback audioMaster);
 
@@ -53,6 +67,7 @@ struct vst_bridge_host {
   pthread_mutex_t                lock;
   pending_type                   pending;
   struct vst_bridge_plugin_data  plugin_data;
+  FILE                          *log;
 };
 
 struct vst_bridge_host g_host = {
@@ -101,7 +116,7 @@ void check_plugin_data(void)
     memcpy(&rq.plugin_data, &g_host.plugin_data, sizeof (rq.plugin_data));
     write(g_host.socket, &rq, 8 + sizeof (rq.plugin_data));
   }
-#undef CHECK_FIELD(X)
+#undef CHECK_FIELD
 }
 
 bool serve_request2(struct vst_bridge_request *rq);
@@ -198,6 +213,7 @@ bool serve_request2(struct vst_bridge_request *rq)
     case effGetVendorString:
     case effGetProductString:
     case effGetProgramNameIndexed:
+    case effGetMidiKeyName:
     case effCanDo:
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
@@ -213,10 +229,15 @@ bool serve_request2(struct vst_bridge_request *rq)
 
     case effEditOpen: {
       assert(!g_host.hwnd);
+
+      ERect * rect = NULL;
+      g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
+
       g_host.hwnd = CreateWindowEx(WS_EX_TOOLWINDOW,
                                    APPLICATION_CLASS_NAME, "Plugin",
                                    WS_POPUP,
-                                   0, 0, 1200, 670,
+                                   0, 0, rect->right - rect->left,
+                                   rect->bottom - rect->top,
                                    0, 0, GetModuleHandle(0), 0);
       if (!g_host.hwnd)
         CRIT("failed to create window\n");
@@ -307,7 +328,8 @@ bool serve_request2(struct vst_bridge_request *rq)
 
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, ves, rq->erq.opt);
-      write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
+      CHECKED_WRITE(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
+      fsync(g_host.socket);
       return true;
     }
 
@@ -424,9 +446,6 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
       index, value, ptr, opt, g_host.next_tag);
 
   switch (opcode) {
-  case audioMasterSizeWindow:
-    return true;
-
     // no additional data
   case audioMasterAutomate:
   case audioMasterVersion:
@@ -444,6 +463,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   case __audioMasterWantMidiDeprecated:
   case __audioMasterNeedIdleDeprecated:
   case audioMasterGetVendorVersion:
+  case audioMasterSizeWindow:
     //case audioMasterUpdateDisplay:
     rq.tag           = g_host.next_tag;
     rq.cmd           = VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK;
@@ -598,6 +618,13 @@ int main(int argc, char **argv)
 {
   HMODULE module;
   const char *plugin_path = argv[1];
+
+  if (false) {
+    char path[128];
+    snprintf(path, sizeof (path), "/tmp/vst-bridge-host.%d.log", getpid());
+    g_host.log = fopen(path, "w+");
+  } else
+    g_host.log = stdout;
 
   g_host.hwnd = 0;
   g_host.main_thread_id = GetCurrentThreadId();

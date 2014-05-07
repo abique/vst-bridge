@@ -23,14 +23,24 @@ const char g_plugin_path[PATH_MAX] = VST_BRIDGE_TPL_MAGIC;
 const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
 
 #if 0
-# define LOG(Args...) fprintf(stderr, "P: " Args)
+# define LOG(Args...)                           \
+  do {                                          \
+    fprintf(g_log ? : stderr, "P: " Args);      \
+    fflush(g_log ? : stderr);                   \
+  } while (0)
 #else
 # define LOG(Args...) do { ; } while (0)
 #endif
 
-#define CRIT(Args...) fprintf(stderr, "[CRIT] P: " Args)
+#define CRIT(Args...)                                   \
+  do {                                                  \
+    fprintf(g_log ? : stderr, "[CRIT] P: " Args);       \
+    fflush(g_log ? : stderr);                           \
+  } while (0)
 
 #include "../vstsdk2.4/pluginterfaces/vst2.x/aeffectx.h"
+
+static FILE *g_log = NULL;
 
 struct vst_bridge_effect {
   vst_bridge_effect()
@@ -495,6 +505,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   case effGetVendorString:
   case effGetProductString:
   case effGetProgramNameIndexed:
+  case effGetMidiKeyName:
     rq.tag         = vbe->next_tag;
     rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
     rq.erq.opcode  = opcode;
@@ -738,6 +749,15 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
 {
   struct vst_bridge_effect *vbe = NULL;
   int fds[2];
+
+  if (!g_log) {
+    if (false) {
+      char path[128];
+      snprintf(path, sizeof (path), "/tmp/vst-bridge-plugin.%d.log", getpid());
+      g_log = fopen(path, "w+");
+    } else
+      g_log = stdout;
+  }
 
   // allocate the context
   vbe = new vst_bridge_effect;
