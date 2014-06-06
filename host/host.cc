@@ -27,7 +27,7 @@
 #define VST_BRIDGE_WMSG_IO 19041
 #define VST_BRIDGE_WMSG_EDIT_OPEN 19042
 
-#if 0
+#ifdef DEBUG
 # define LOG(Args...)                           \
   do {                                          \
     fprintf(g_host.log, "H: " Args);            \
@@ -607,12 +607,13 @@ int main(int argc, char **argv)
   HMODULE module;
   const char *plugin_path = argv[1];
 
-  if (false) {
+#ifdef DEBUG
     char path[128];
     snprintf(path, sizeof (path), "/tmp/vst-bridge-host.%d.log", getpid());
     g_host.log = fopen(path, "w+");
-  } else
+#else
     g_host.log = stdout;
+#endif
 
   g_host.hwnd = 0;
   g_host.main_thread_id = GetCurrentThreadId();

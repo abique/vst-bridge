@@ -22,7 +22,7 @@
 const char g_plugin_path[PATH_MAX] = VST_BRIDGE_TPL_MAGIC;
 const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
 
-#if 0
+#ifdef DEBUG
 # define LOG(Args...)                           \
   do {                                          \
     fprintf(g_log ? : stderr, "P: " Args);      \
@@ -728,12 +728,13 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   int fds[2];
 
   if (!g_log) {
-    if (false) {
+#ifdef DEBUG
       char path[128];
       snprintf(path, sizeof (path), "/tmp/vst-bridge-plugin.%d.log", getpid());
       g_log = fopen(path, "w+");
-    } else
+#else
       g_log = stdout;
+#endif
   }
 
   // allocate the context
