@@ -192,7 +192,7 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
     for (it = vbe->pending.begin(); it != vbe->pending.end(); ++it) {
       if (it->tag != tag)
         continue;
-      *rq = *it;
+      *rq = *it; // XXX could be optimized?
       vbe->pending.erase(it);
       return true;
     }
