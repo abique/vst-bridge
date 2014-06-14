@@ -29,6 +29,7 @@ enum vst_bridge_cmd {
   VST_BRIDGE_CMD_PROCESS_DOUBLE,
   VST_BRIDGE_CMD_SET_PARAMETER,
   VST_BRIDGE_CMD_GET_PARAMETER,
+  VST_BRIDGE_CMD_SHOW_WINDOW,
 };
 
 struct vst_bridge_effect_request {
@@ -104,6 +105,7 @@ struct vst_bridge_request {
   };
 } __attribute__((packed));
 
+#define VST_BRIDGE_RQ_LEN 8
 #define VST_BRIDGE_CHUNK_SIZE (96 * 1024)
 #define VST_BRIDGE_ERQ_LEN(X) ((X) + 8 + sizeof (struct vst_bridge_effect_request))
 #define VST_BRIDGE_AMRQ_LEN(X) ((X) + 8 + sizeof (struct vst_bridge_audio_master_request))

@@ -145,7 +145,7 @@ bool wait_response(struct vst_bridge_request *rq,
     len = read(g_host.socket, rq, sizeof (*rq));
     if (len <= 0)
       return false;
-    assert(len > 8);
+    assert(len >= VST_BRIDGE_RQ_LEN);
     if (rq->tag == tag)
       return true;
     if (rq->cmd != VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK) {
@@ -253,10 +253,6 @@ bool serve_request2(struct vst_bridge_request *rq)
       rq->erq.index = (ptrdiff_t)GetPropA(g_host.hwnd, "__wine_x11_whole_window");
 
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
-
-      ShowWindow(g_host.hwnd, SW_SHOWNORMAL);
-      UpdateWindow(g_host.hwnd);
-
       return true;
     }
 
@@ -406,6 +402,12 @@ bool serve_request2(struct vst_bridge_request *rq)
           VST_BRIDGE_FRAMES_DOUBLE_LEN(g_host.e->numOutputs * rq->framesd.nframes));
     return true;
   }
+
+  case VST_BRIDGE_CMD_SHOW_WINDOW:
+    ShowWindow(g_host.hwnd, SW_SHOWNORMAL);
+    UpdateWindow(g_host.hwnd);
+    write(g_host.socket, rq, VST_BRIDGE_RQ_LEN);
+    return true;
 
   case VST_BRIDGE_CMD_AUDIO_MASTER_CALLBACK:
     CRIT("  !!!!!!!!!!! UNEXPECTED AMC: tag: %d, opcode: %d\n",
@@ -694,6 +696,8 @@ int main(int argc, char **argv)
   wclass.cbSize        = sizeof (wclass);
   wclass.style         = CS_HREDRAW | CS_VREDRAW;
   wclass.lpfnWndProc   = MainProc;
+  wclass.cbClsExtra    = 0;
+  wclass.cbWndExtra    = 0;
   wclass.hInstance     = GetModuleHandle(NULL);
   wclass.hIcon         = LoadIcon(GetModuleHandle(NULL), APPLICATION_CLASS_NAME);
   wclass.hCursor       = LoadCursor(0, IDI_APPLICATION);

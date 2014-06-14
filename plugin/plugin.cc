@@ -203,7 +203,7 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
     len = ::read(vbe->socket, rq, sizeof (*rq));
     if (len <= 0)
       return false;
-    assert(len > 8);
+    assert(len >= VST_BRIDGE_RQ_LEN);
 
     LOG("     ===> Got tag %d\n", rq->tag);
 
@@ -435,6 +435,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
       }
 
       XReparentWindow(display, child, parent, 0, 0);
+      XMapWindow(display, child);
 
       XEvent ev;
 
@@ -449,19 +450,28 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
       XSendEvent(display, child, false, NoEventMask, &ev);
       XSync(display, false);
 
-      memset(&ev, 0, sizeof (ev));
-      ev.xclient.type = ClientMessage;
-      ev.xclient.window = child;
-      ev.xclient.message_type = XInternAtom(display, "_XEMBED", false);
-      ev.xclient.format = 32;
-      ev.xclient.data.l[0] = CurrentTime;
-      ev.xclient.data.l[1] = XEMBED_FOCUS_OUT;
-      XSendEvent(display, child, false, NoEventMask, &ev);
-      XSync(display, false);
+      // memset(&ev, 0, sizeof (ev));
+      // ev.xclient.type = ClientMessage;
+      // ev.xclient.window = child;
+      // ev.xclient.message_type = XInternAtom(display, "_XEMBED", false);
+      // ev.xclient.format = 32;
+      // ev.xclient.data.l[0] = CurrentTime;
+      // ev.xclient.data.l[1] = XEMBED_FOCUS_OUT;
+      // XSendEvent(display, child, false, NoEventMask, &ev);
+      // XSync(display, false);
 
-      if (close_display)
-        XCloseDisplay(display);
+      XFlush(display);
+
+      // if (close_display)
+      //   XCloseDisplay(display);
     }
+
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_SHOW_WINDOW;
+    vbe->next_tag += 2;
+
+    write(vbe->socket, &rq, VST_BRIDGE_RQ_LEN);
+    vst_bridge_wait_response(vbe, &rq, rq.tag);
 
     return rq.erq.value;
   }
