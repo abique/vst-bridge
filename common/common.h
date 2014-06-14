@@ -83,7 +83,7 @@ struct vst_bridge_midi_event {
   int32_t deltaFrames;
   int32_t flags;
   uint8_t data[0];
-};
+} __attribute__((packed));
 
 struct vst_bridge_midi_events {
   uint32_t nb;

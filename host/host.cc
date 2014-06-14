@@ -29,7 +29,8 @@
 #define VST_BRIDGE_WMSG_IO 19041
 #define VST_BRIDGE_WMSG_EDIT_OPEN 19042
 
-#if 0
+#ifdef DEBUG
+
 # define LOG(Args...)                           \
   do {                                          \
     fprintf(g_host.log, "H: " Args);            \
@@ -75,7 +76,13 @@ struct vst_bridge_host g_host = {
   NULL,
   1,
   false,
-  NULL
+  NULL,
+  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+  0,
+  0,
+  pthread_mutex_t(),
+  vst_bridge_host::pending_type(),
+  {false, false, false, false, 0, 0, 0, 0, 0, 0, 0, 0}
 };
 
 void copy_plugin_data(void)
@@ -619,12 +626,13 @@ int main(int argc, char **argv)
   HMODULE module;
   const char *plugin_path = argv[1];
 
-  if (false) {
+#ifdef DEBUG
     char path[128];
     snprintf(path, sizeof (path), "/tmp/vst-bridge-host.%d.log", getpid());
     g_host.log = fopen(path, "w+");
-  } else
+#else
     g_host.log = stdout;
+#endif
 
   g_host.hwnd = 0;
   g_host.main_thread_id = GetCurrentThreadId();
@@ -691,8 +699,9 @@ int main(int argc, char **argv)
   wclass.hCursor       = LoadCursor(0, IDI_APPLICATION);
   wclass.lpszClassName = APPLICATION_CLASS_NAME;
 
-  if (!RegisterClassEx(&wclass))
+  if (!RegisterClassEx(&wclass)) {
     LOG("failed to register Windows application class\n");
+  }
 
   // HANDLE audio_thread = CreateThread(
   //   NULL, 8 * 1024 * 1024, vst_bridge_audio_thread, NULL, 0, NULL);
