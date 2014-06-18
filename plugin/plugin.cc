@@ -433,7 +433,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
     vst_bridge_wait_response(vbe, &rq, rq.tag);
 
-    Display *display = (Display *)value;
     Window   parent  = (Window)ptr;
     Window   child   = (Window)rq.erq.index;
 
@@ -451,13 +450,12 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
         temp[0] = (long)(data & 0xffffffffUL);
         temp[1] = (long)(data >> 32L);
 
-        Atom atom = XInternAtom(display, "_XEventProc", false);
+        Atom atom = XInternAtom(vbe->display, "_XEventProc", false);
         XChangeProperty(vbe->display, child, atom, atom, 32,
                         PropModeReplace, (unsigned char*)temp, 2);
       }
 
       XReparentWindow(vbe->display, child, parent, 0, 0);
-      //XMapWindow(vbe->display, child);
 
       XEvent ev;
 
@@ -491,9 +489,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
 
     write(vbe->socket, &rq, VST_BRIDGE_RQ_LEN);
     vst_bridge_wait_response(vbe, &rq, rq.tag);
-
-    XMapWindow(vbe->display, child);
-    XMapSubwindows(vbe->display, child);
 
     return rq.erq.value;
   }
