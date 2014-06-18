@@ -235,21 +235,22 @@ bool serve_request2(struct vst_bridge_request *rq)
       return true;
 
     case effEditOpen: {
-      assert(!g_host.hwnd);
+      if (!g_host.hwnd) {
+        ERect * rect = NULL;
+        g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
 
-      ERect * rect = NULL;
-      g_host.e->dispatcher(g_host.e, effEditGetRect, 0, 0, &rect, 0);
+        g_host.hwnd = CreateWindowEx(WS_EX_TOOLWINDOW,
+                                     APPLICATION_CLASS_NAME, "Plugin",
+                                     WS_POPUP,
+                                     0, 0, rect->right - rect->left,
+                                     rect->bottom - rect->top,
+                                     0, 0, GetModuleHandle(0), 0);
+      }
 
-      g_host.hwnd = CreateWindowEx(WS_EX_TOOLWINDOW,
-                                   APPLICATION_CLASS_NAME, "Plugin",
-                                   WS_POPUP,
-                                   0, 0, rect->right - rect->left,
-                                   rect->bottom - rect->top,
-                                   0, 0, GetModuleHandle(0), 0);
       if (!g_host.hwnd)
         CRIT("failed to create window\n");
 
-      rq->erq.value = g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
+      rq->erq.value = 0;
       rq->erq.index = (ptrdiff_t)GetPropA(g_host.hwnd, "__wine_x11_whole_window");
 
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
@@ -257,8 +258,8 @@ bool serve_request2(struct vst_bridge_request *rq)
     }
 
     case effEditClose:
-      CloseWindow(g_host.hwnd);
-      g_host.hwnd = 0;
+      DestroyWindow(g_host.hwnd);
+      g_host.hwnd = NULL;
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, rq->erq.data, rq->erq.opt);
       write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(0));
@@ -404,6 +405,7 @@ bool serve_request2(struct vst_bridge_request *rq)
   }
 
   case VST_BRIDGE_CMD_SHOW_WINDOW:
+    g_host.e->dispatcher(g_host.e, effEditOpen, 0, 0, g_host.hwnd, 0);
     ShowWindow(g_host.hwnd, SW_SHOWNORMAL);
     UpdateWindow(g_host.hwnd);
     write(g_host.socket, rq, VST_BRIDGE_RQ_LEN);

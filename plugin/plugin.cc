@@ -65,6 +65,7 @@ struct vst_bridge_effect {
     pthread_mutex_destroy(&lock);
     int st;
     waitpid(child, &st, 0);
+    //XCloseDisplay(display);
   }
 
   struct AEffect                 e;
@@ -77,7 +78,16 @@ struct vst_bridge_effect {
   ERect                          rect;
   bool                           close_flag;
   std::list<vst_bridge_request>  pending;
+  Display                       *display;
 };
+
+void xevent_handler(XEvent *event)
+{
+  if (event)
+    LOG("XEVENT: type: %d\n", event->type);
+  else
+    LOG("XEVENT: NULL");
+}
 
 void copy_plugin_data(struct vst_bridge_effect *vbe,
                       struct vst_bridge_request *rq)
@@ -423,47 +433,56 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(0));
     vst_bridge_wait_response(vbe, &rq, rq.tag);
 
-    if (getenv("VST_BRIDGE_XEMBED")) {
-      Display *display = (Display *)value;
-      Window   parent  = (Window)ptr;
-      Window   child   = (Window)rq.erq.index;
-      bool     close_display = false;
+    Display *display = (Display *)value;
+    Window   parent  = (Window)ptr;
+    Window   child   = (Window)rq.erq.index;
 
-      if (!display) {
-        display = XOpenDisplay(NULL);
-        close_display = !!display;
+    if (1 /*getenv("VST_BRIDGE_XEMBED")*/) {
+
+      if (!vbe->display)
+        vbe->display = XOpenDisplay(NULL);
+
+      // set xevent_handler
+      {
+        size_t data = (size_t)xevent_handler;
+        long temp[2];
+
+        // Split the 64 bit pointer into a little-endian long array
+        temp[0] = (long)(data & 0xffffffffUL);
+        temp[1] = (long)(data >> 32L);
+
+        Atom atom = XInternAtom(display, "_XEventProc", false);
+        XChangeProperty(vbe->display, child, atom, atom, 32,
+                        PropModeReplace, (unsigned char*)temp, 2);
       }
 
-      XReparentWindow(display, child, parent, 0, 0);
-      XMapWindow(display, child);
+      XReparentWindow(vbe->display, child, parent, 0, 0);
+      //XMapWindow(vbe->display, child);
 
       XEvent ev;
 
       memset(&ev, 0, sizeof (ev));
       ev.xclient.type = ClientMessage;
       ev.xclient.window = child;
-      ev.xclient.message_type = XInternAtom(display, "_XEMBED", false);
+      ev.xclient.message_type = XInternAtom(vbe->display, "_XEMBED", false);
       ev.xclient.format = 32;
       ev.xclient.data.l[0] = CurrentTime;
       ev.xclient.data.l[1] = XEMBED_EMBEDDED_NOTIFY;
       ev.xclient.data.l[3] = parent;
-      XSendEvent(display, child, false, NoEventMask, &ev);
-      XSync(display, false);
+      XSendEvent(vbe->display, child, false, NoEventMask, &ev);
+      XSync(vbe->display, false);
 
       // memset(&ev, 0, sizeof (ev));
       // ev.xclient.type = ClientMessage;
       // ev.xclient.window = child;
-      // ev.xclient.message_type = XInternAtom(display, "_XEMBED", false);
+      // ev.xclient.message_type = XInternAtom(vbe->display, "_XEMBED", false);
       // ev.xclient.format = 32;
       // ev.xclient.data.l[0] = CurrentTime;
       // ev.xclient.data.l[1] = XEMBED_FOCUS_OUT;
-      // XSendEvent(display, child, false, NoEventMask, &ev);
-      // XSync(display, false);
+      // XSendEvent(vbe->display, child, false, NoEventMask, &ev);
+      // XSync(vbe->display, false);
 
-      XFlush(display);
-
-      // if (close_display)
-      //   XCloseDisplay(display);
+      XFlush(vbe->display);
     }
 
     rq.tag         = vbe->next_tag;
@@ -472,6 +491,9 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
 
     write(vbe->socket, &rq, VST_BRIDGE_RQ_LEN);
     vst_bridge_wait_response(vbe, &rq, rq.tag);
+
+    XMapWindow(vbe->display, child);
+    XMapSubwindows(vbe->display, child);
 
     return rq.erq.value;
   }
@@ -786,6 +808,7 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   vbe->e.processReplacing       = vst_bridge_call_process;
   vbe->e.processDoubleReplacing = vst_bridge_call_process_double;
   vbe->close_flag               = false;
+  vbe->display                  = NULL;
 
   // initialize sockets
   if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, fds))

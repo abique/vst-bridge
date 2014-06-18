@@ -4,7 +4,7 @@ TARGET = vst-bridge-plugin-tpl.so
 SRC = plugin.cc
 
 $(TARGET): $(SRC) ../common/common.h ../config.h
-	$(CXX) $(CXXFLAGS) -shared -fPIC $(SRC) -o $@
+	$(CXX) $(CXXFLAGS) -shared -fPIC $(SRC) -o $@ -lX11 -lXcomposite
 
 install: $(TARGET)
 	install -m 755 -d $(DESTDIR)$(PREFIX)/lib/vst-bridge
