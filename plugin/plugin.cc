@@ -65,7 +65,8 @@ struct vst_bridge_effect {
     pthread_mutex_destroy(&lock);
     int st;
     waitpid(child, &st, 0);
-    //XCloseDisplay(display);
+    if (display)
+      XCloseDisplay(display);
   }
 
   struct AEffect                 e;
@@ -79,15 +80,8 @@ struct vst_bridge_effect {
   bool                           close_flag;
   std::list<vst_bridge_request>  pending;
   Display                       *display;
+  bool                           show_window;
 };
-
-void xevent_handler(XEvent *event)
-{
-  if (event)
-    LOG("XEVENT: type: %d\n", event->type);
-  else
-    LOG("XEVENT: NULL");
-}
 
 void copy_plugin_data(struct vst_bridge_effect *vbe,
                       struct vst_bridge_request *rq)
@@ -230,6 +224,20 @@ bool vst_bridge_wait_response(struct vst_bridge_effect *vbe,
     }
 
     vbe->pending.push_back(*rq);
+  }
+}
+
+void vst_bridge_show_window(struct vst_bridge_effect *vbe)
+{
+  struct vst_bridge_request rq;
+  if (vbe->show_window) {
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_SHOW_WINDOW;
+    vbe->next_tag += 2;
+
+    vbe->show_window = false;
+    write(vbe->socket, &rq, VST_BRIDGE_RQ_LEN);
+    vst_bridge_wait_response(vbe, &rq, rq.tag);
   }
 }
 
@@ -441,20 +449,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
       if (!vbe->display)
         vbe->display = XOpenDisplay(NULL);
 
-      // set xevent_handler
-      {
-        size_t data = (size_t)xevent_handler;
-        long temp[2];
-
-        // Split the 64 bit pointer into a little-endian long array
-        temp[0] = (long)(data & 0xffffffffUL);
-        temp[1] = (long)(data >> 32L);
-
-        Atom atom = XInternAtom(vbe->display, "_XEventProc", false);
-        XChangeProperty(vbe->display, child, atom, atom, 32,
-                        PropModeReplace, (unsigned char*)temp, 2);
-      }
-
       XReparentWindow(vbe->display, child, parent, 0, 0);
 
       XEvent ev;
@@ -470,26 +464,11 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
       XSendEvent(vbe->display, child, false, NoEventMask, &ev);
       XSync(vbe->display, false);
 
-      // memset(&ev, 0, sizeof (ev));
-      // ev.xclient.type = ClientMessage;
-      // ev.xclient.window = child;
-      // ev.xclient.message_type = XInternAtom(vbe->display, "_XEMBED", false);
-      // ev.xclient.format = 32;
-      // ev.xclient.data.l[0] = CurrentTime;
-      // ev.xclient.data.l[1] = XEMBED_FOCUS_OUT;
-      // XSendEvent(vbe->display, child, false, NoEventMask, &ev);
-      // XSync(vbe->display, false);
-
       XFlush(vbe->display);
     }
 
-    rq.tag         = vbe->next_tag;
-    rq.cmd         = VST_BRIDGE_CMD_SHOW_WINDOW;
-    vbe->next_tag += 2;
-
-    write(vbe->socket, &rq, VST_BRIDGE_RQ_LEN);
-    vst_bridge_wait_response(vbe, &rq, rq.tag);
-
+    vbe->show_window = true;
+    vst_bridge_show_window(vbe);
     return rq.erq.value;
   }
 
@@ -803,6 +782,7 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   vbe->e.processReplacing       = vst_bridge_call_process;
   vbe->e.processDoubleReplacing = vst_bridge_call_process_double;
   vbe->close_flag               = false;
+  vbe->show_window              = false;
   vbe->display                  = NULL;
 
   // initialize sockets
