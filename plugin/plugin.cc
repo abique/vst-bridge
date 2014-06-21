@@ -180,7 +180,7 @@ void vst_bridge_handle_audio_master(struct vst_bridge_effect *vbe,
 
   default:
     CRIT("  !!!!!!! audio master callback (unhandled): op: %d,"
-         " index: %d, value: %d, opt: %f\n",
+         " index: %d, value: %ld, opt: %f\n",
          rq->amrq.opcode, rq->amrq.index, rq->amrq.value, rq->amrq.opt);
     break;
   }
@@ -444,28 +444,28 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     Window   parent  = (Window)ptr;
     Window   child   = (Window)rq.erq.index;
 
-    if (1 /*getenv("VST_BRIDGE_XEMBED")*/) {
+    if (!vbe->display)
+      vbe->display = XOpenDisplay(NULL);
 
-      if (!vbe->display)
-        vbe->display = XOpenDisplay(NULL);
+    XReparentWindow(vbe->display, child, parent, 0, 0);
 
-      XReparentWindow(vbe->display, child, parent, 0, 0);
+#if 0
+    XEvent ev;
 
-      XEvent ev;
+    memset(&ev, 0, sizeof (ev));
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = child;
+    ev.xclient.message_type = XInternAtom(vbe->display, "_XEMBED", false);
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = CurrentTime;
+    ev.xclient.data.l[1] = XEMBED_EMBEDDED_NOTIFY;
+    ev.xclient.data.l[3] = parent;
+    XSendEvent(vbe->display, child, false, NoEventMask, &ev);
+#endif
 
-      memset(&ev, 0, sizeof (ev));
-      ev.xclient.type = ClientMessage;
-      ev.xclient.window = child;
-      ev.xclient.message_type = XInternAtom(vbe->display, "_XEMBED", false);
-      ev.xclient.format = 32;
-      ev.xclient.data.l[0] = CurrentTime;
-      ev.xclient.data.l[1] = XEMBED_EMBEDDED_NOTIFY;
-      ev.xclient.data.l[3] = parent;
-      XSendEvent(vbe->display, child, false, NoEventMask, &ev);
-      XSync(vbe->display, false);
+    XSync(vbe->display, false);
 
-      XFlush(vbe->display);
-    }
+    XFlush(vbe->display);
 
     vbe->show_window = true;
     vst_bridge_show_window(vbe);
@@ -578,9 +578,9 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     vbe->chunk = chunk;
     for (size_t off = 0; rq.erq.value > 0; ) {
       size_t can_read = MIN(VST_BRIDGE_CHUNK_SIZE, rq.erq.value - off);
-      memcpy(vbe->chunk + off, rq.erq.data, can_read);
+      memcpy(static_cast<uint8_t *>(vbe->chunk) + off, rq.erq.data, can_read);
       off += can_read;
-      if (off == rq.erq.value)
+      if (off == static_cast<size_t>(rq.erq.value))
         break;
       if (!vst_bridge_wait_response(vbe, &rq, rq.tag))
         return 0;
@@ -598,9 +598,9 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     rq.erq.opt     = opt;
     vbe->next_tag += 2;
 
-    for (size_t off = 0; off < value; ) {
+    for (size_t off = 0; off < static_cast<size_t>(value); ) {
       size_t can_write = MIN(VST_BRIDGE_CHUNK_SIZE, value - off);
-      memcpy(rq.erq.data, ptr + off, can_write);
+      memcpy(rq.erq.data, static_cast<uint8_t *>(ptr) + off, can_write);
       write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(can_write));
       off += can_write;
     }
