@@ -558,7 +558,7 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
     if (!rq.amrq.value)
       return 0;
     memcpy(&g_host.time_info, rq.amrq.data, sizeof (g_host.time_info));
-    return VstIntPtr(&g_host.time_info);
+    return reinterpret_cast<ptrdiff_t>(&g_host.time_info);
 
   case audioMasterGetProductString:
   case audioMasterGetVendorString:
