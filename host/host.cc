@@ -49,6 +49,7 @@
 #define CHECKED_WRITE(Fd, Data, Size)           \
   do {                                          \
     ssize_t __nb = write(Fd, Data, Size);       \
+    (void)__nb;                                 \
     assert(__nb == Size);                       \
   } while (0)
 
@@ -82,7 +83,8 @@ struct vst_bridge_host g_host = {
   0,
   pthread_mutex_t(),
   vst_bridge_host::pending_type(),
-  {false, false, false, false, 0, 0, 0, 0, 0, 0, 0, 0}
+  {false, false, false, false, 0, 0, 0, 0, 0, 0, 0, 0},
+  NULL
 };
 
 void copy_plugin_data(void)
@@ -285,9 +287,9 @@ bool serve_request2(struct vst_bridge_request *rq)
       void *ptr;
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
                                            rq->erq.value, &ptr, rq->erq.opt);
-      for (size_t off = 0; off < rq->erq.value; ) {
+      for (size_t off = 0; off < static_cast<size_t>(rq->erq.value); ) {
         size_t can_write = MIN(VST_BRIDGE_CHUNK_SIZE, rq->erq.value - off);
-        memcpy(rq->erq.data, ptr + off, can_write);
+        memcpy(rq->erq.data, static_cast<uint8_t *>(ptr) + off, can_write);
         off += can_write;
         write(g_host.socket, rq, VST_BRIDGE_ERQ_LEN(can_write));
       }
@@ -301,11 +303,11 @@ bool serve_request2(struct vst_bridge_request *rq)
         return true;
       }
 
-      for (size_t off = 0; off < rq->erq.value; ) {
+      for (size_t off = 0; off < static_cast<size_t>(rq->erq.value); ) {
         size_t can_read = MIN(VST_BRIDGE_CHUNK_SIZE, rq->erq.value - off);
-        memcpy(data + off, rq->erq.data, can_read);
+        memcpy(static_cast<uint8_t*>(data) + off, rq->erq.data, can_read);
         off += can_read;
-        if (off == rq->erq.value)
+        if (off == static_cast<size_t>(rq->erq.value))
           break;
         if (!wait_response(rq, rq->tag))
           return 0;
@@ -325,7 +327,7 @@ bool serve_request2(struct vst_bridge_request *rq)
       ves->numEvents = mes->nb;
       ves->reserved  = 0;
       struct vst_bridge_midi_event *me = mes->events;
-      for (int i = 0; i < mes->nb; ++i) {
+      for (size_t i = 0; i < mes->nb; ++i) {
         ves->events[i] = (VstEvent*)me;
         me = (struct vst_bridge_midi_event *)(me->data + me->byteSize);
       }
@@ -350,7 +352,7 @@ bool serve_request2(struct vst_bridge_request *rq)
     default:
       CRIT(" !!!!!!!!!! effectDispatcher unsupported: opcode: (%s, %d), index: %d,"
            " value: %d, opt: %f\n", vst_bridge_effect_opcode_name[rq->erq.opcode],
-           rq->erq.opcode, rq->erq.index, rq->erq.value, rq->erq.opt);
+           rq->erq.opcode, rq->erq.index, static_cast<int>(rq->erq.value), rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
     }
@@ -424,7 +426,6 @@ bool serve_request2(struct vst_bridge_request *rq)
 
 bool serve_request(void)
 {
-  uint32_t tag;
   struct vst_bridge_request rq;
 
   pthread_mutex_lock(&g_host.lock);
@@ -442,14 +443,13 @@ bool serve_request(void)
   return ret;
 }
 
-VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
+VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  /*effect*/,
                                          VstInt32  opcode,
                                          VstInt32  index,
                                          VstIntPtr value,
                                          void*     ptr,
                                          float     opt)
 {
-  ssize_t len;
   struct vst_bridge_request rq;
 
   LOG("[%p] host_audio_master(%s, %d, %d, %p, %f) => %d\n",
@@ -582,7 +582,8 @@ VstIntPtr VSTCALLBACK host_audio_master2(AEffect*  effect,
   default:
     CRIT("  !!!!!!!!!!!!!! audioMaster unsupported: opcode: (%s, %d), index: %d,"
          " value: %d, ptr: %p, opt: %f\n",
-         vst_bridge_audio_master_opcode_name[opcode], opcode, index, value, ptr, opt);
+         vst_bridge_audio_master_opcode_name[opcode], opcode, index,
+         static_cast<int>(value), ptr, opt);
     return 0;
   }
 }
@@ -616,7 +617,7 @@ MainProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
   return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
-DWORD WINAPI vst_bridge_audio_thread(void *arg)
+DWORD WINAPI vst_bridge_audio_thread(void */*arg*/)
 {
   while (!g_host.stop)
     if (!serve_request())
@@ -629,6 +630,9 @@ int main(int argc, char **argv)
 {
   HMODULE module;
   const char *plugin_path = argv[1];
+
+  if (argc != 3)
+    return 1;
 
 #ifdef DEBUG
     char path[128];
@@ -724,7 +728,7 @@ int main(int argc, char **argv)
   while (true) {
     pfd.fd = g_host.socket;
     pfd.events = POLLIN;
-    int ret = poll(&pfd, 1, 50);
+    poll(&pfd, 1, 50);
     if (pfd.revents & POLLIN &&
         !serve_request())
       break;
