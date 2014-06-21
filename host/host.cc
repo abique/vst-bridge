@@ -276,8 +276,8 @@ bool serve_request2(struct vst_bridge_request *rq)
 
     case effSetSpeakerArrangement:
       rq->erq.value = g_host.e->dispatcher(g_host.e, rq->erq.opcode, rq->erq.index,
-                                           VstIntPtr(rq->erq.data), rq->erq.data,
-                                           rq->erq.opt);
+                                           reinterpret_cast<ptrdiff_t>(rq->erq.data),
+                                           rq->erq.data, rq->erq.opt);
       write(g_host.socket, rq, sizeof (*rq));
       return true;
 
