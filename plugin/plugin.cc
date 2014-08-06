@@ -771,6 +771,7 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   vbe = new vst_bridge_effect;
   if (!vbe)
     goto failed;
+  memset(vbe, 0, sizeof(vst_bridge_effect));
 
   // XXX move to the class description
   vbe->audio_master             = audio_master;
@@ -811,7 +812,7 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   // forward plugin main
   if (!vst_bridge_call_plugin_main(vbe)) {
     close(vbe->socket);
-    free(vbe);
+    delete vbe;
     return NULL;
   }
 
@@ -825,6 +826,6 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   close(fds[1]);
   failed_sockets:
   failed:
-  free(vbe);
+  delete vbe;
   return NULL;
 }
