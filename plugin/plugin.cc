@@ -771,7 +771,6 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
   vbe = new vst_bridge_effect;
   if (!vbe)
     goto failed;
-  memset(vbe, 0, sizeof(vst_bridge_effect));
 
   // XXX move to the class description
   vbe->audio_master             = audio_master;
