@@ -55,6 +55,7 @@ struct vst_bridge_effect {
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&lock, &attr);
     pthread_mutexattr_destroy(&attr);
+    memset(&e, 0, sizeof (e));
   }
 
   ~vst_bridge_effect()
