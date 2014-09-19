@@ -14,7 +14,9 @@
       const typeof( ((type *)0)->member ) *__mptr = (ptr);              \
       (type *)( (char *)__mptr - offsetof(type,member) );})
 
-# define VST_BRIDGE_TPL_MAGIC "VST-BRIDGE-TPL-PATH"
+# define VST_BRIDGE_TPL_DLL "VST-BRIDGE-TPL-DLL"
+# define VST_BRIDGE_TPL_HOST "VST-BRIDGE-TPL-HOST"
+# define VST_BRIDGE_TPL_WINEPREFIX "VST-BRIDGE-TPL-WINEPREFIX"
 # define VST_BRIDGE_TPL_PATH INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-plugin-tpl.so"
 # define VST_BRIDGE_HOST32_PATH INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-host-32.exe"
 # define VST_BRIDGE_HOST64_PATH INSTALL_PREFIX "/lib/vst-bridge/vst-bridge-host-64.exe"

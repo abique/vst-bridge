@@ -8,22 +8,29 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <errno.h>
 
 #include <magic.h>
 
 #include "../config.h"
 #include "../common/common.h"
 
+void replace_magic(void *mem_so, size_t mem_sz,
+                   const char *magic, const char *replacement);
+
 int main(int argc, char **argv)
 {
   int arch = 32;
   magic_t magic;
   char dll_real_path[PATH_MAX];
+  char wineprefix_real_path[PATH_MAX];
 
-  if (argc != 3) {
-    fprintf(stderr, "usage: %s <vst.dll> <vst.so>\n", argv[0]);
+  if (argc != 3 && argc != 4) {
+    fprintf(stderr, "usage: %s <vst.dll> <vst.so> [<wine-prefix>]\n", argv[0]);
     return 2;
   }
+
+  int has_wineprefix = argc == 4;
 
   struct stat st_dll;
   if (stat(argv[1], &st_dll) ||
@@ -36,6 +43,21 @@ int main(int argc, char **argv)
   if (stat(VST_BRIDGE_TPL_PATH, &st_tpl)) {
     fprintf(stderr, "%s: %m\n", VST_BRIDGE_TPL_PATH);
     return 1;
+  }
+
+  if (has_wineprefix) {
+    struct stat st_wineprefix;
+
+    if (stat(argv[3], &st_wineprefix) ||
+        !realpath(argv[3], wineprefix_real_path)) {
+      fprintf(stderr, "%s: %m\n", argv[3]);
+      return 1;
+    }
+
+    if (!S_ISDIR(st_wineprefix.st_mode)) {
+      fprintf(stderr, "%s: %s\n", argv[3], strerror(ENOTDIR));
+      return 1;
+    }
   }
 
   magic = magic_open(MAGIC_NONE);
@@ -81,28 +103,36 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  void *dll_path = memmem(mem_so, st_tpl.st_size, VST_BRIDGE_TPL_MAGIC,
-                          sizeof (VST_BRIDGE_TPL_MAGIC));
-  if (!dll_path) {
-    fprintf(stderr, "template magic not found in plugin\n");
-    return 1;
-  }
-  strncpy(dll_path, dll_real_path, PATH_MAX);
+  replace_magic(mem_so, st_tpl.st_size, VST_BRIDGE_TPL_DLL, dll_real_path);
+  replace_magic(mem_so, st_tpl.st_size, VST_BRIDGE_TPL_HOST, arch == 32 ? VST_BRIDGE_HOST32_PATH : VST_BRIDGE_HOST64_PATH);
+  if (has_wineprefix)
+    replace_magic(mem_so, st_tpl.st_size, VST_BRIDGE_TPL_WINEPREFIX, wineprefix_real_path);
 
-  void *host_path = memmem(mem_so, st_tpl.st_size, VST_BRIDGE_HOST32_PATH,
-                           sizeof (VST_BRIDGE_HOST32_PATH));
-  if (!host_path) {
-    fprintf(stderr, "host path not found in plugin\n");
-    return 1;
-  }
-
-  if (arch == 32)
-    memcpy(host_path, VST_BRIDGE_HOST32_PATH, sizeof (VST_BRIDGE_HOST32_PATH));
-  else
-    memcpy(host_path, VST_BRIDGE_HOST64_PATH, sizeof (VST_BRIDGE_HOST64_PATH));
   munmap(mem_so, st_tpl.st_size);
 
   close(fd_so);
 
   return 0;
+}
+
+void replace_magic(void *mem_so, size_t mem_sz,
+                   const char *magic, const char *replacement)
+{
+  char pattern[PATH_MAX];
+
+  // Just to make sure we replace only values of PATH_MAX length.
+  memset(pattern, 0, sizeof(pattern));
+  strcpy(pattern, magic);
+
+  void *pos = memmem(mem_so, mem_sz, pattern, sizeof(pattern));
+  if (!pos) {
+    fprintf(stderr, "`%s' magic not found in plugin\n", magic);
+    exit(1);
+  }
+
+  // Remove all the rubbish. Probably will never matter.
+  memset(pattern, 0, sizeof(pattern));
+  strcpy(pattern, replacement);
+
+  memcpy(pos, pattern, sizeof(pattern));
 }
