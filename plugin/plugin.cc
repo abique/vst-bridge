@@ -19,8 +19,9 @@
 #include "../config.h"
 #include "../common/common.h"
 
-const char g_plugin_path[PATH_MAX] = VST_BRIDGE_TPL_MAGIC;
-const char g_host_path[PATH_MAX] = VST_BRIDGE_HOST32_PATH;
+const char g_plugin_path[PATH_MAX] = VST_BRIDGE_TPL_DLL;
+const char g_host_path[PATH_MAX] = VST_BRIDGE_TPL_HOST;
+const char g_plugin_wineprefix[PATH_MAX] = VST_BRIDGE_TPL_WINEPREFIX;
 
 #ifdef DEBUG
 
@@ -798,6 +799,16 @@ AEffect* VSTPluginMain(audioMasterCallback audio_master)
 
   if (!vbe->child) {
     // in the child
+
+    // A hack to cheat GCC optimisation. If we'd simply compare
+    // g_plugin_wineprefix to VST_BRIDGE_TPL_WINEPREFIX, the
+    // whole if(strcmp(...)) {} will disappear in the assembly.
+
+    char *local_plugin_wineprefix = strdup(g_plugin_wineprefix);
+    if (strcmp(local_plugin_wineprefix, VST_BRIDGE_TPL_WINEPREFIX) != 0)
+      setenv("WINEPREFIX", local_plugin_wineprefix, 1); // Should we really override an existing var?
+    free(local_plugin_wineprefix);
+
     char buff[8];
     close(fds[0]);
     snprintf(buff, sizeof (buff), "%d", fds[1]);

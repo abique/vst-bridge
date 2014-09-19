@@ -12,6 +12,8 @@ First you have to create a directory for your bridges:
 Then you can create your first bridge:
  $ ~/local/bin/vst-bridge-maker ~/.wine/drive_c/VST/Synth1/Synth1.dll ~/.vst-bridges/Synth1.so
 
+Optionally, you can add a third argument — a path to a WINEPREFIX you want the plugin to use.
+
 Now edit ~/.bashrc and add $HOME/.vst-bridges/ to VST_PATH. Mine looks like:
 export VST_PATH=/usr/lib/vst/:$HOME/.vst-bridges/
 
