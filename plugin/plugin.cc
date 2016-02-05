@@ -366,6 +366,7 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   case effGetNumMidiOutputChannels:
   case effEditClose:
   case effCanBeAutomated:
+  case effGetTailSize:
     rq.tag         = vbe->next_tag;
     rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
     rq.erq.opcode  = opcode;
