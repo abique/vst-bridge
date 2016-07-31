@@ -69,7 +69,7 @@ int main(int argc, char **argv)
       arch = 32;
     else if (strstr(magic_file(magic, dll_real_path), "x86-64"))
       arch = 64;
-    printf("detected %d bits dll\n", arch);
+    printf("%s: detected %d bits dll\n", dll_real_path, arch);
     magic_close(magic);
   }
 
