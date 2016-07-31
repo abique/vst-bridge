@@ -6,7 +6,7 @@ CFLAGS="$CFLAGS -W -Wall -Wstrict-prototypes -pipe"
 CFLAGS="$CFLAGS -Wfloat-equal -Wundef -Wshadow -Wpointer-arith"
 CFLAGS="$CFLAGS -Wmissing-declarations -Wnested-externs"
 CFLAGS="$CFLAGS -Wmissing-prototypes"
-CXXFLAGS="$CXXFLAGS -W -Wall -pipe -Wundef -Wshadow -Wpointer-arith -Wabi"
+CXXFLAGS="$CXXFLAGS -W -Wall -pipe -Wundef -Wshadow -Wpointer-arith -Wabi -std=c++11"
 LDFLAGS="$LDFLAGS"
 
 if [[ -z "$CC" ]]; then
