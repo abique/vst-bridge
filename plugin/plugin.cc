@@ -507,6 +507,23 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
       return 0;
     return rq.amrq.value;
 
+  case effGetMidiKeyName:
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
+
+    memcpy(rq.erq.data, ptr, sizeof (MidiKeyName));
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(sizeof (MidiKeyName)));
+    if (!vst_bridge_wait_response(vbe, &rq, rq.tag))
+      return 0;
+
+    memcpy(ptr, rq.erq.data, sizeof (MidiKeyName));
+    return rq.erq.value;
+
   case effGetProgramName:
   case effGetParamLabel:
   case effGetParamDisplay:
@@ -515,7 +532,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   case effGetVendorString:
   case effGetProductString:
   case effGetProgramNameIndexed:
-  case effGetMidiKeyName:
     rq.tag         = vbe->next_tag;
     rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
     rq.erq.opcode  = opcode;
