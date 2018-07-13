@@ -394,6 +394,19 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
     memcpy(ptr, rq.erq.data, sizeof (VstPinProperties));
     return rq.erq.value;
 
+  case effBeginLoadBank:
+    rq.tag         = vbe->next_tag;
+    rq.cmd         = VST_BRIDGE_CMD_EFFECT_DISPATCHER;
+    rq.erq.opcode  = opcode;
+    rq.erq.index   = index;
+    rq.erq.value   = value;
+    rq.erq.opt     = opt;
+    vbe->next_tag += 2;
+
+    write(vbe->socket, &rq, VST_BRIDGE_ERQ_LEN(sizeof (VstPatchChunkInfo)));
+    vst_bridge_wait_response(vbe, &rq, rq.tag);
+    return rq.erq.value;
+
   case effOpen:
   case effGetPlugCategory:
   case effGetVstVersion:
