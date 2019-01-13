@@ -344,7 +344,6 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
 {
   struct vst_bridge_effect *vbe = container_of(effect, struct vst_bridge_effect, e);
   struct vst_bridge_request rq;
-  ssize_t len;
 
   LOG("[%p] effect_dispatcher(%s, %d, %d, %p, %f) => next_tag: %d\n",
       pthread_self(), vst_bridge_effect_opcode_name[opcode], index, value,
@@ -710,8 +709,8 @@ VstIntPtr vst_bridge_call_effect_dispatcher2(AEffect*  effect,
   }
 
   default:
-    CRIT("[%p] !!!!!!!!!! UNHANDLED effect_dispatcher(%s, %d, %d, %p, %f)\n",
-         pthread_self(), vst_bridge_effect_opcode_name[opcode], index, value,
+    CRIT("[%p] !!!!!!!!!! UNHANDLED effect_dispatcher(%s, %d, %ld, %p)\n",
+         (void*)pthread_self(), vst_bridge_effect_opcode_name[opcode], index, value,
          ptr);
     return 0;
   }
