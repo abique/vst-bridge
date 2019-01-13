@@ -32,6 +32,7 @@ enum vst_bridge_cmd {
   VST_BRIDGE_CMD_SET_PARAMETER,
   VST_BRIDGE_CMD_GET_PARAMETER,
   VST_BRIDGE_CMD_SHOW_WINDOW,
+  VST_BRIDGE_CMD_SET_SCHEDPARAM,
 };
 
 struct vst_bridge_effect_request {
@@ -93,6 +94,11 @@ struct vst_bridge_midi_events {
   struct vst_bridge_midi_event events[0];
 } __attribute__((packed));
 
+struct vst_bridge_schedparam {
+  int policy;
+  int priority;
+} __attribute__((packed));
+
 struct vst_bridge_request {
   uint32_t tag;
   uint32_t cmd;
@@ -104,6 +110,7 @@ struct vst_bridge_request {
     struct vst_bridge_frames_double framesd;
     struct vst_bridge_effect_parameter param;
     struct vst_bridge_plugin_data plugin_data;
+    struct vst_bridge_schedparam schedparam;
   };
 } __attribute__((packed));
 
@@ -114,6 +121,7 @@ struct vst_bridge_request {
 #define VST_BRIDGE_PARAM_LEN (8 + sizeof (struct vst_bridge_effect_parameter))
 #define VST_BRIDGE_FRAMES_LEN(X) ((X) * sizeof (float) + 8 + sizeof (struct vst_bridge_frames))
 #define VST_BRIDGE_FRAMES_DOUBLE_LEN(X) ((X) * sizeof (double) + 8 + sizeof (struct vst_bridge_frames_double))
+#define VST_BRIDGE_SCHEDPARAM_LEN (8 + sizeof(struct vst_bridge_schedparam))
 
   static const char * const vst_bridge_effect_opcode_name[] = {
     "effOpen",
